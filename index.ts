@@ -1,4 +1,4 @@
-import { WASI } from "./wasi";
+import { WASI, WASIProcExit } from "./wasi";
 import { instantiate } from "./wasi/asyncify";
 import { useArgs, useClock, useEnviron, useProc, useRandom, useMemoryFS } from "./wasi";
 import type { WASIOptions } from "./wasi/options";
@@ -91,7 +91,7 @@ export class ZeroPerlError extends Error {
         this.name = 'ZeroPerlError';
         this.exitCode = exitCode;
         this.perlError = perlError;
-        
+
         if (Error.captureStackTrace) {
             Error.captureStackTrace(this, ZeroPerlError);
         }
@@ -104,7 +104,7 @@ export class ZeroPerlError extends Error {
 export interface ZeroPerlOptions {
     /** Environment variables to pass to Perl */
     env?: Record<string, string>;
-    
+
     /** 
      * Virtual filesystem to provide to Perl
      * 
@@ -116,13 +116,13 @@ export interface ZeroPerlOptions {
      * ```
      */
     fileSystem?: MemoryFileSystem;
-    
+
     /** Capture stdout output */
     stdout?: (data: string | Uint8Array) => void;
-    
+
     /** Capture stderr output */
     stderr?: (data: string | Uint8Array) => void;
-    
+
     /** Custom fetch implementation for loading the WASM module */
     fetch?: FetchLike;
 }
@@ -173,7 +173,6 @@ async function loadWasmSource(fetchFn?: FetchLike): Promise<ArrayBuffer> {
         // Resolve the WASM path relative to this module using import.meta.url
         const wasmUrl = new URL(zeroperl, import.meta.url);
         const wasmPath = wasmUrl.pathname;
-        console.log("Loading WASM from path:", wasmPath);
 
         //@ts-expect-error Deno
         if (typeof Deno !== "undefined") {
@@ -284,9 +283,9 @@ export class ZeroPerl {
      */
     static async create(options: ZeroPerlOptions = {}): Promise<ZeroPerl> {
         const source = await loadWasmSource(options.fetch);
-        
+
         const fileSystem = options.fileSystem || new MemoryFileSystem({ "/": "" });
-        
+
         const wasiOptions: WASIOptions = {
             env: options.env || {},
             args: ['zeroperl'],
@@ -324,7 +323,7 @@ export class ZeroPerl {
         await wasi.initialize(instance);
 
         const exports = wasi.exports as ZeroPerlExports;
-        
+
         const required = [
             'memory', 'malloc', 'free',
             'zeroperl_init', 'zeroperl_init_with_args', 'zeroperl_eval',
@@ -335,22 +334,22 @@ export class ZeroPerl {
             'zeroperl_is_initialized', 'zeroperl_can_evaluate',
             'zeroperl_flush'
         ];
-        
+
         for (const name of required) {
             if (!(name in exports)) {
                 throw new ZeroPerlError(`Missing required export: ${name}`);
             }
         }
-        
+
         const perl = new ZeroPerl(wasi, exports);
-        
+
         // Initialize in interactive mode (ready for eval)
         const result = await perl.exports.zeroperl_init();
         if (result !== 0) {
             const error = await perl.getLastError();
             throw new ZeroPerlError('Failed to initialize Perl interpreter', result, error);
         }
-        
+
         return perl;
     }
 
@@ -370,13 +369,13 @@ export class ZeroPerl {
      */
     private readCString(ptr: number): string {
         if (ptr === 0) return '';
-        
+
         const view = new Uint8Array(this.exports.memory.buffer);
         let len = 0;
         while (view[ptr + len] !== 0) {
             len++;
         }
-        
+
         return textDecoder.decode(view.subarray(ptr, ptr + len));
     }
 
@@ -385,16 +384,16 @@ export class ZeroPerl {
      */
     private async writeStringArray(args: string[]): Promise<{ argv: number; buffers: number[] }> {
         const buffers: number[] = [];
-        
+
         const argv = await this.exports.malloc(args.length * 4);
         const argvView = new DataView(this.exports.memory.buffer);
-        
+
         for (let i = 0; i < args.length; i++) {
             const strPtr = await this.writeCString(args[i]!);
             buffers.push(strPtr);
             argvView.setUint32(argv + i * 4, strPtr, true);
         }
-        
+
         return { argv, buffers };
     }
 
@@ -434,26 +433,26 @@ export class ZeroPerl {
      */
     async eval(code: string, args: string[] = []): Promise<ZeroPerlResult> {
         this.checkDisposed();
-        
+
         const codePtr = await this.writeCString(code);
-        
+
         let argv = 0;
         let buffers: number[] = [];
-        
+
         if (args.length > 0) {
             const result = await this.writeStringArray(args);
             argv = result.argv;
             buffers = result.buffers;
         }
-        
+
         try {
             const exitCode = await this.exports.zeroperl_eval(codePtr, args.length, argv);
-            
+
             if (exitCode !== 0) {
                 const error = await this.getLastError();
                 return { success: false, error, exitCode };
             }
-            
+
             return { success: true, exitCode: 0 };
         } finally {
             await this.exports.free(codePtr);
@@ -489,27 +488,37 @@ export class ZeroPerl {
      */
     async runFile(scriptPath: string, args: string[] = []): Promise<ZeroPerlResult> {
         this.checkDisposed();
-        
+
         const pathPtr = await this.writeCString(scriptPath);
-        
+
         let argv = 0;
         let buffers: number[] = [];
-        
+
         if (args.length > 0) {
             const result = await this.writeStringArray(args);
             argv = result.argv;
             buffers = result.buffers;
         }
-        
+
         try {
             const exitCode = await this.exports.zeroperl_run_file(pathPtr, args.length, argv);
-            
+
             if (exitCode !== 0) {
                 const error = await this.getLastError();
                 return { success: false, error, exitCode };
             }
-            
+
             return { success: true, exitCode: 0 };
+        } catch (e) {
+            if (e instanceof WASIProcExit) {
+                if (e.code !== 0) {
+                    const error = await this.getLastError();
+                    return { success: false, error, exitCode: e.code };
+                } else {
+                    return { success: true, exitCode: 0 };
+                }
+            }
+            throw e;
         } finally {
             await this.exports.free(pathPtr);
             if (buffers.length > 0) {
@@ -535,7 +544,7 @@ export class ZeroPerl {
      */
     async reset(): Promise<void> {
         this.checkDisposed();
-        
+
         const result = await this.exports.zeroperl_reset();
         if (result !== 0) {
             const error = await this.getLastError();
@@ -572,7 +581,7 @@ export class ZeroPerl {
      */
     async flush(): Promise<void> {
         this.checkDisposed();
-        
+
         const result = await this.exports.zeroperl_flush();
         if (result !== 0) {
             throw new ZeroPerlError('Failed to flush output buffers', result);
@@ -593,7 +602,7 @@ export class ZeroPerl {
      */
     async getVariable(name: string): Promise<string | null> {
         this.checkDisposed();
-        
+
         const namePtr = await this.writeCString(name);
         try {
             const valuePtr = await this.exports.zeroperl_get_sv(namePtr);
@@ -622,7 +631,7 @@ export class ZeroPerl {
      */
     async setVariable(name: string, value: string): Promise<void> {
         this.checkDisposed();
-        
+
         const namePtr = await this.writeCString(name);
         const valuePtr = await this.writeCString(value);
         try {
@@ -640,7 +649,7 @@ export class ZeroPerl {
      */
     async getLastError(): Promise<string> {
         this.checkDisposed();
-        
+
         const errorPtr = await this.exports.zeroperl_last_error();
         return this.readCString(errorPtr);
     }
@@ -684,7 +693,7 @@ export class ZeroPerl {
      */
     async dispose(): Promise<void> {
         if (this.isDisposed) return;
-        
+
         await this.exports.zeroperl_free_interpreter();
         this.isDisposed = true;
     }
@@ -698,7 +707,7 @@ export class ZeroPerl {
      */
     async shutdown(): Promise<void> {
         if (this.isDisposed) return;
-        
+
         await this.exports.zeroperl_shutdown();
         this.isDisposed = true;
     }

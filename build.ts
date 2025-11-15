@@ -1,7 +1,7 @@
 const shared = {
   entrypoints: ['index.ts'],
-  sourcemap: 'linked' as const,
-  minify: true,
+  sourcemap: 'inline' as const,
+  minify: false,
 };
 
 await Promise.all([
@@ -22,3 +22,5 @@ await Promise.all([
     naming: '[name].cjs',
   }),
 ]);
+
+export { };
