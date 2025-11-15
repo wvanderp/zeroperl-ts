@@ -2,9 +2,8 @@ import { WASI, WASIProcExit } from "./wasi";
 import { instantiate } from "./wasi/asyncify";
 import { useArgs, useClock, useEnviron, useProc, useRandom, useMemoryFS } from "./wasi";
 import type { WASIOptions } from "./wasi/options";
-import zeroperl from "./zeroperl.wasm" with { type: "wasm" };
 import { MemoryFileSystem } from "./wasi/features/fd";
-
+import zeroperl from './zeroperl.wasm';
 export { MemoryFileSystem } from "./wasi/features/fd";
 
 /**

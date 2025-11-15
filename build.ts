@@ -10,17 +10,23 @@ await Promise.all([
     outdir: 'dist/esm',
     format: 'esm',
     target: 'browser',
-    naming: '[name].js',
+    naming: {
+      entry: '[name].js',
+      chunk: '[name].js',
+      asset: '[name].[ext]',
+    },
   }),
-  
-  // CommonJS build for Node
   Bun.build({
     ...shared,
     outdir: 'dist/cjs',
     format: 'cjs',
     target: 'node',
-    naming: '[name].cjs',
+    naming: {
+      entry: '[name].cjs',
+      chunk: '[name].cjs',
+      asset: '[name].[ext]',
+    },
   }),
 ]);
 
-export { };
+export {};

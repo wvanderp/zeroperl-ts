@@ -1,6 +1,6 @@
 {
   "name": "@6over3/zeroperl-ts",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Perl 5 interpreter powered by WebAssembly for JavaScript runtimes",
   "scripts": {
     "build": "npm run build:esm && npm run build:cjs && bun build.ts",
@@ -42,6 +42,10 @@
         "types": "./dist/cjs/types/index.d.ts",
         "default": "./dist/cjs/index.cjs"
       }
+    },
+    "./zeroperl.wasm": {
+      "import": "./dist/esm/zeroperl.wasm",
+      "require": "./dist/cjs/zeroperl.wasm"
     }
   },
   "keywords": [
