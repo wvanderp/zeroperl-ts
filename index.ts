@@ -454,6 +454,16 @@ export class ZeroPerl {
             }
 
             return { success: true, exitCode: 0 };
+        } catch (e) {
+            if (e instanceof WASIProcExit) {
+                if (e.code !== 0) {
+                    const error = await this.getLastError();
+                    return { success: false, error, exitCode: e.code };
+                } else {
+                    return { success: true, exitCode: 0 };
+                }
+            }
+            throw e;
         } finally {
             await this.exports.free(codePtr);
             if (buffers.length > 0) {
