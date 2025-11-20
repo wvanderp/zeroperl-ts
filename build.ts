@@ -1,7 +1,7 @@
 const shared = {
   entrypoints: ['index.ts'],
   sourcemap: 'inline' as const,
-  minify: false,
+  minify: true,
 };
 
 await Promise.all([
