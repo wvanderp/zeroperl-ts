@@ -204,26 +204,28 @@ export class WASIAbi {
         return iovsBuffers;
     }
 
-    writeFilestat(memory: DataView, ptr: number, filetype: number): void {
-        memory.setBigUint64(ptr, /* dev */ BigInt(0), true);
-        memory.setBigUint64(ptr + 8, /* ino */ BigInt(0), true);
+    writeFilestat(memory: DataView, ptr: number, filetype: number, size: bigint = 0n): void {
+        memory.setBigUint64(ptr, /* dev */ 0n, true);
+        memory.setBigUint64(ptr + 8, /* ino */ 0n, true);
         memory.setUint8(ptr + 16, filetype);
-        memory.setUint32(ptr + 24, /* nlink */ 0, true);
-        memory.setBigUint64(ptr + 32, /* size */ BigInt(0), true);
-        memory.setBigUint64(ptr + 40, /* atim */ BigInt(0), true);
-        memory.setBigUint64(ptr + 48, /* mtim */ BigInt(0), true);
+        memory.setUint32(ptr + 24, /* nlink */ 1, true);  // nlink should be at least 1
+        memory.setBigUint64(ptr + 32, /* size */ size, true);
+        memory.setBigUint64(ptr + 40, /* atim */ 0n, true);
+        memory.setBigUint64(ptr + 48, /* mtim */ 0n, true);
     }
 
     writeFdstat(
         memory: DataView,
         ptr: number,
         filetype: number,
-        flags: number
+        fdflags: number,
+        rightsBase: bigint,
+        rightsInheriting: bigint
     ): void {
         memory.setUint8(ptr, filetype);
-        memory.setUint16(ptr + 2, flags, true);
-        memory.setBigUint64(ptr + 8, /* rights_base */ BigInt(0), true);
-        memory.setBigUint64(ptr + 16, /* rights_inheriting */ BigInt(0), true);
+        memory.setUint16(ptr + 2, fdflags, true);
+        memory.setBigUint64(ptr + 8, rightsBase, true);
+        memory.setBigUint64(ptr + 16, rightsInheriting, true);
     }
 }
 

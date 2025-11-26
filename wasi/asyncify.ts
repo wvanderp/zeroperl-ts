@@ -21,10 +21,6 @@
 const DATA_ADDR: number = 16;
 // Place actual data right after the descriptor (which is 2 * sizeof(i32) = 8 bytes).
 const DATA_START: number = DATA_ADDR + 8;
-// End data at 1024 bytes. This is where the unused area by Clang ends and real stack / data begins.
-// Because this might differ between languages and parameters passed to wasm-ld, ideally we would
-// use `__stack_pointer` here, but, sadly, it's not exposed via exports yet.
-const DATA_END: number = 1024;
 
 const WRAPPED_EXPORTS: WeakMap<any, any> = new WeakMap();
 
@@ -41,6 +37,7 @@ interface AsyncifyExports extends WebAssembly.Exports {
 	asyncify_start_rewind: (addr: number) => void;
 	asyncify_stop_rewind: () => void;
 	memory: WebAssembly.Memory;
+	__stack_pointer: WebAssembly.Global;
 }
 
 type ImportFn = (...args: any[]) => any;
@@ -173,7 +170,17 @@ class Asyncify {
 			throw new Error("Memory not found in exports or imports.env");
 		}
 
-		new Int32Array(memory.buffer, DATA_ADDR).set([DATA_START, DATA_END]);
+		// Use __stack_pointer to determine where the asyncify buffer should end
+		// This is where the real stack begins
+		let dataEnd: number;
+		if (exports.__stack_pointer) {
+			dataEnd = exports.__stack_pointer.value as number;
+		} else {
+			// Fallback to 1024 if __stack_pointer is not available
+			dataEnd = 1024;
+		}
+
+		new Int32Array(memory.buffer, DATA_ADDR).set([DATA_START, dataEnd]);
 
 		this.exports = this.wrapExports(exports) as AsyncifyExports;
 

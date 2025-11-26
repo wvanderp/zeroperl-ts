@@ -1173,7 +1173,7 @@ describe("Calling Perl from JavaScript", () => {
 
 describe("File System", () => {
 	it("should run script files", async () => {
-		const fs = new MemoryFileSystem({ "/": "" });
+		const fs = new MemoryFileSystem({ "/": "/" });
 		fs.addFile("/test.pl", 'print "Hello from file!"');
 
 		let output = "";
@@ -1187,6 +1187,7 @@ describe("File System", () => {
 
 		const result = await perl.runFile("/test.pl");
 		await perl.flush();
+		console.log(result);
 
 		expect(result.success).toBe(true);
 		expect(output).toBe("Hello from file!");
@@ -1247,7 +1248,7 @@ describe("File System", () => {
 
 		const result = await perl.runFile("/nonexistent.pl");
 		expect(result.success).toBe(false);
-		expect(result.error).toContain("File not found");
+		expect(result.error).toContain("No such file or directory");
 
 		await perl.dispose();
 	});
@@ -1544,8 +1545,9 @@ describe("Complex Scenarios", () => {
 
 		await perl.setVariable("nested", nested);
 
-		await perl.eval('use Data::Dumper; print Dumper($nested);');
+		const r = await perl.eval('use Data::Dumper; print Dumper($nested);');
 		await perl.flush();
+		console.log(r, output);
 		expect(output).toContain("'value' => 'deep'");
 		await perl.dispose();
 	});
@@ -1695,8 +1697,9 @@ describe("Error Handling", () => {
 			},
 		});
 
-		await warnPerl.eval("use warnings; print $undefined_var");
+		const result = await warnPerl.eval("use warnings; print $undefined_var");
 		await warnPerl.flush();
+		console.log(result, output);
 
 		expect(output).toContain("uninitialized");
 
@@ -1789,5 +1792,457 @@ describe("Creation Options", () => {
 		expect(stderr).toContain("err");
 
 		await perl.dispose();
+	});
+
+	describe("Unicode Character Handling", () => {
+		describe("Korean (한국어) Characters", () => {
+			it("should create and retrieve Korean strings", async () => {
+				const perl = await ZeroPerl.create();
+				const koreanText = "안녕하세요";
+				const val = await perl.createString(koreanText);
+
+				expect(await val.toString()).toBe(koreanText);
+				expect(await val.project()).toBe(koreanText);
+				expect((await val.toString()).length).toBe(5);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Korean text in variables", async () => {
+				const perl = await ZeroPerl.create();
+				const koreanText = "김철수";
+
+				await perl.setVariable("name", koreanText);
+				const retrieved = await perl.getVariable("name");
+
+				expect(await retrieved?.toString()).toBe(koreanText);
+				expect(await retrieved?.toString()).not.toMatch(/[�]/);
+
+				await retrieved?.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Korean text with special characters", async () => {
+				const perl = await ZeroPerl.create();
+				const koreanText = "안녕하세요! 반갑습니다? (한국어)";
+
+				await perl.setVariable("greeting", koreanText);
+				const retrieved = await perl.getVariable("greeting");
+
+				expect(await retrieved?.toString()).toBe(koreanText);
+
+				await retrieved?.dispose();
+				await perl.dispose();
+			});
+
+			it("should output Korean text correctly", async () => {
+				let output = "";
+				const perl = await ZeroPerl.create({
+					stdout: (data) => {
+						output += typeof data === "string" ? data : new TextDecoder().decode(data);
+					},
+				});
+
+				const koreanText = "안녕하세요";
+				await perl.setVariable("msg", koreanText);
+				await perl.eval('print $msg');
+				await perl.flush();
+
+				expect(output).toBe(koreanText);
+				expect(output).not.toMatch(/[�]/);
+
+				await perl.dispose();
+			});
+		});
+
+		describe("Japanese (日本語) Characters", () => {
+			it("should create and retrieve Japanese strings", async () => {
+				const perl = await ZeroPerl.create();
+				const japaneseText = "こんにちは世界";
+				const val = await perl.createString(japaneseText);
+
+				expect(await val.toString()).toBe(japaneseText);
+				expect(await val.project()).toBe(japaneseText);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle mixed Hiragana, Katakana, and Kanji", async () => {
+				const perl = await ZeroPerl.create();
+				const japaneseText = "ひらがな カタカナ 漢字";
+
+				await perl.setVariable("text", japaneseText);
+				const retrieved = await perl.getVariable("text");
+
+				expect(await retrieved?.toString()).toBe(japaneseText);
+
+				await retrieved?.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Japanese text in arrays", async () => {
+				const perl = await ZeroPerl.create();
+				const items = ["東京", "大阪", "京都"];
+				const arr = await perl.createArray(items);
+
+				expect(await arr.getLength()).toBe(3);
+
+				const val0 = await arr.get(0);
+				expect(await val0?.toString()).toBe("東京");
+
+				const val1 = await arr.get(1);
+				expect(await val1?.toString()).toBe("大阪");
+
+				const projected = await arr.project();
+				expect(projected).toEqual(items);
+
+				await val0?.dispose();
+				await val1?.dispose();
+				await arr.dispose();
+				await perl.dispose();
+			});
+		});
+
+		describe("Chinese (中文) Characters", () => {
+			it("should handle Simplified Chinese text", async () => {
+				const perl = await ZeroPerl.create();
+				const chineseText = "你好世界";
+				const val = await perl.createString(chineseText);
+
+				expect(await val.toString()).toBe(chineseText);
+				expect(await val.toString()).not.toMatch(/[�]/);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Traditional Chinese text", async () => {
+				const perl = await ZeroPerl.create();
+				const chineseText = "繁體中文測試";
+
+				await perl.setVariable("text", chineseText);
+				const retrieved = await perl.getVariable("text");
+
+				expect(await retrieved?.toString()).toBe(chineseText);
+
+				await retrieved?.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Chinese text in hashes", async () => {
+				const perl = await ZeroPerl.create();
+				const data = {
+					城市: "北京",
+					国家: "中国",
+				};
+				const hash = await perl.createHash(data);
+
+				const city = await hash.get("城市");
+				expect(await city?.toString()).toBe("北京");
+
+				const country = await hash.get("国家");
+				expect(await country?.toString()).toBe("中国");
+
+				await city?.dispose();
+				await country?.dispose();
+				await hash.dispose();
+				await perl.dispose();
+			});
+		});
+
+		describe("Mixed Unicode and Multilingual", () => {
+			it("should handle mixed language text", async () => {
+				const perl = await ZeroPerl.create();
+				const mixedText = "Hello 안녕하세요 こんにちは 你好";
+				const val = await perl.createString(mixedText);
+
+				expect(await val.toString()).toBe(mixedText);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle emoji and extended Unicode", async () => {
+				const perl = await ZeroPerl.create();
+				const emojiText = "📷 Photo by 김철수 🌸";
+				const val = await perl.createString(emojiText);
+
+				expect(await val.toString()).toBe(emojiText);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Unicode in nested structures", async () => {
+				const perl = await ZeroPerl.create();
+				const nested = {
+					user: {
+						name: "田中太郎",
+						city: "東京",
+					},
+					tags: ["写真", "旅行", "食べ物"],
+				};
+
+				await perl.setVariable("data", nested);
+				const retrieved = await perl.getVariable("data");
+
+				expect(await retrieved?.isRef()).toBe(true);
+
+				await retrieved?.dispose();
+				await perl.dispose();
+			});
+
+			it("should round-trip Unicode arrays", async () => {
+				const perl = await ZeroPerl.create();
+				const original = ["Hello", "안녕", "こんにちは", "你好", "🌍"];
+				const arr = await perl.createArray(original);
+				const result = await arr.project();
+
+				expect(result).toEqual(original);
+
+				await arr.dispose();
+				await perl.dispose();
+			});
+
+			it("should round-trip Unicode hashes", async () => {
+				const perl = await ZeroPerl.create();
+				const original = {
+					english: "Hello",
+					korean: "안녕하세요",
+					japanese: "こんにちは",
+					chinese: "你好",
+					emoji: "🎉",
+				};
+				const hash = await perl.createHash(original);
+				const result = await hash.project();
+
+				expect(result).toEqual(original);
+
+				await hash.dispose();
+				await perl.dispose();
+			});
+		});
+
+		describe("Unicode in Perl Operations", () => {
+			it("should handle Unicode in eval code with 'use utf8' pragma", async () => {
+				const perl = await ZeroPerl.create();
+				const result = await perl.eval('use utf8; $greeting = "안녕하세요"');
+
+				expect(result.success).toBe(true);
+
+				const greeting = await perl.getVariable("greeting");
+				expect(await greeting?.toString()).toBe("안녕하세요");
+
+				await greeting?.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Unicode in Perl string operations with 'use utf8' pragma", async () => {
+				let output = "";
+				const perl = await ZeroPerl.create({
+					stdout: (data) => {
+						output += typeof data === "string" ? data : new TextDecoder().decode(data);
+					},
+				});
+
+				await perl.setVariable("name", "김철수");
+				await perl.eval('use utf8; $msg = "안녕하세요, $name!"; print $msg');
+				await perl.flush();
+
+				expect(output).toBe("안녕하세요, 김철수!");
+
+				await perl.dispose();
+			});
+
+			it("should handle Unicode passed via setVariable without pragma", async () => {
+				let output = "";
+				const perl = await ZeroPerl.create({
+					stdout: (data) => {
+						output += typeof data === "string" ? data : new TextDecoder().decode(data);
+					},
+				});
+
+				await perl.setVariable("greeting", "안녕하세요");
+				await perl.setVariable("name", "김철수");
+				await perl.eval('print "$greeting, $name!"');
+				await perl.flush();
+
+				expect(output).toBe("안녕하세요, 김철수!");
+
+				await perl.dispose();
+			});
+
+			it("should handle Unicode in host functions with pragma", async () => {
+				const perl = await ZeroPerl.create();
+
+				await perl.registerFunction("greet", async (name) => {
+					const n = await name.toString();
+					return await perl.createString(`안녕하세요, ${n}!`);
+				});
+				await perl.eval('use utf8; $result = greet("田中")');
+				const result = await perl.getVariable("result");
+
+				expect(await result?.toString()).toBe("안녕하세요, 田中!");
+
+				await result?.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Unicode in host functions via setVariable", async () => {
+				const perl = await ZeroPerl.create();
+
+				await perl.registerFunction("greet", async (name) => {
+					const n = await name.toString();
+					return await perl.createString(`안녕하세요, ${n}!`);
+				});
+
+				await perl.setVariable("name_arg", "田中");
+				await perl.eval('$result = greet($name_arg)');
+				const result = await perl.getVariable("result");
+
+				expect(await result?.toString()).toBe("안녕하세요, 田中!");
+
+				await result?.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Unicode in Perl subroutine calls", async () => {
+				const perl = await ZeroPerl.create();
+
+				await perl.eval('sub echo { return $_[0]; }');
+
+				const arg = await perl.createString("こんにちは世界");
+				const result = await perl.call("echo", [arg], "scalar");
+
+				expect(await result?.toString()).toBe("こんにちは世界");
+
+				await arg.dispose();
+				await result?.dispose();
+				await perl.dispose();
+			});
+
+			it("should corrupt Unicode in source code without 'use utf8' pragma", async () => {
+				const perl = await ZeroPerl.create();
+				const result = await perl.eval('$greeting = "안녕하세요"');
+
+				expect(result.success).toBe(true);
+
+				const greeting = await perl.getVariable("greeting");
+				const retrieved = await greeting?.toString();
+
+				expect(retrieved).not.toBe("안녕하세요");
+				expect(retrieved?.length).toBeGreaterThan(5);
+
+				await greeting?.dispose();
+				await perl.dispose();
+			});
+		});
+
+		describe("Unicode Byte Length Validation", () => {
+			it("should preserve correct byte length for Korean text", async () => {
+				const perl = await ZeroPerl.create();
+				const koreanText = "안녕하세요";
+				const expectedByteLength = new TextEncoder().encode(koreanText).length;
+
+				const val = await perl.createString(koreanText);
+				const retrieved = await val.toString();
+				const actualByteLength = new TextEncoder().encode(retrieved).length;
+
+				expect(actualByteLength).toBe(expectedByteLength);
+				expect(retrieved.length).toBe(koreanText.length);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should preserve correct byte length for emoji", async () => {
+				const perl = await ZeroPerl.create();
+				const emojiText = "🎉🌸📷";
+				const expectedByteLength = new TextEncoder().encode(emojiText).length;
+
+				const val = await perl.createString(emojiText);
+				const retrieved = await val.toString();
+				const actualByteLength = new TextEncoder().encode(retrieved).length;
+
+				expect(actualByteLength).toBe(expectedByteLength);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+		});
+
+		describe("Unicode Edge Cases", () => {
+			it("should handle very long Unicode text", async () => {
+				const perl = await ZeroPerl.create();
+				const longText = "안녕하세요".repeat(100);
+
+				const val = await perl.createString(longText);
+				const retrieved = await val.toString();
+
+				expect(retrieved).toBe(longText);
+				expect(retrieved.length).toBe(500);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Unicode with null bytes", async () => {
+				const perl = await ZeroPerl.create();
+				const text = "안녕\0하세요";
+
+				const val = await perl.createString(text);
+				const retrieved = await val.toString();
+
+				expect(retrieved).toBe(text);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle Unicode newlines and whitespace", async () => {
+				const perl = await ZeroPerl.create();
+				const text = "こんにちは\n世界\t日本";
+
+				const val = await perl.createString(text);
+				const retrieved = await val.toString();
+
+				expect(retrieved).toBe(text);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+
+			it("should detect corruption via replacement characters", async () => {
+				const perl = await ZeroPerl.create();
+				const koreanText = "안녕하세요";
+
+				await perl.setVariable("text", koreanText);
+				const retrieved = await perl.getVariable("text");
+				const result = await retrieved?.toString();
+
+				expect(result).not.toContain("�");
+				expect(result).not.toContain("HUX8");
+				expect(result).toMatch(/[\u3131-\uD79D]/); // Contains Hangul
+
+				await retrieved?.dispose();
+				await perl.dispose();
+			});
+
+			it("should handle combining characters", async () => {
+				const perl = await ZeroPerl.create();
+				// Korean with combining jamo
+				const text = "가나다라마";
+
+				const val = await perl.createString(text);
+				const retrieved = await val.toString();
+
+				expect(retrieved).toBe(text);
+
+				await val.dispose();
+				await perl.dispose();
+			});
+		});
 	});
 });

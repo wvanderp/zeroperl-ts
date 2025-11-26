@@ -12,7 +12,7 @@ class WritableTextProxy implements FdEntry {
   constructor(
     private readonly handler: (lines: string | Uint8Array) => void,
     private readonly outputBuffers: boolean
-  ) {}
+  ) { }
 
   writev(iovs: Uint8Array[]): number {
     const totalBufferSize = iovs.reduce((acc, iov) => acc + iov.byteLength, 0);
@@ -35,13 +35,13 @@ class WritableTextProxy implements FdEntry {
   readv(_iovs: Uint8Array[]): number {
     return 0;
   }
-  close(): void {}
+  close(): void { }
 }
 
 export class ReadableTextProxy implements FdEntry {
   private encoder = new TextEncoder();
   private pending: Uint8Array | null = null;
-  constructor(private readonly consume: () => string | Uint8Array) {}
+  constructor(private readonly consume: () => string | Uint8Array) { }
 
   writev(_iovs: Uint8Array[]): number {
     return 0;
@@ -51,9 +51,9 @@ export class ReadableTextProxy implements FdEntry {
       this.pending = null;
       return pending;
     }
-      const result = pending.slice(0, requestLength);
-      this.pending = pending.slice(requestLength);
-      return result;
+    const result = pending.slice(0, requestLength);
+    this.pending = pending.slice(requestLength);
+    return result;
   }
   readv(iovs: Uint8Array[]): number {
     let read = 0;
@@ -92,7 +92,7 @@ export class ReadableTextProxy implements FdEntry {
     }
     return read;
   }
-  close(): void {}
+  close(): void { }
 }
 
 export type StdIoOptions = {
@@ -109,9 +109,9 @@ function bindStdio(
   return [
     new ReadableTextProxy(
       useOptions.stdin ||
-        (() => {
-          return "";
-        })
+      (() => {
+        return "";
+      })
     ),
     new WritableTextProxy(useOptions.stdout || console.log, outputBuffers),
     new WritableTextProxy(useOptions.stderr || console.error, outputBuffers),
@@ -151,7 +151,8 @@ export function useStdio(useOptions: StdIoOptions = {}): WASIFeatureProvider {
         const fdEntry = fdTable[fd];
         if (!fdEntry) return WASIAbi.WASI_ERRNO_BADF;
         const view = memoryView();
-        abi.writeFdstat(view, buf, WASIAbi.WASI_FILETYPE_CHARACTER_DEVICE, 0);
+        const allRights = 0x1fffffffn;
+        abi.writeFdstat(view, buf, WASIAbi.WASI_FILETYPE_CHARACTER_DEVICE, 0, allRights, allRights);
         return WASIAbi.WASI_ESUCCESS;
       },
       fd_filestat_get: (fd: number, buf: number) => {
@@ -284,7 +285,7 @@ export class MemoryFileSystem {
       this.createFile(path, data);
       return;
     }
-      this.createFile(path, content);
+    this.createFile(path, content);
   }
 
   /**
@@ -574,7 +575,7 @@ export function useMemoryFS(
       if (file.content instanceof Blob) {
         return file.content.size;
       }
-        return file.content.byteLength;
+      return file.content.byteLength;
     }
 
     return {
@@ -783,8 +784,8 @@ export function useMemoryFS(
             break;
         }
 
-        abi.writeFdstat(view, buf, filetype, 0);
-        return WASIAbi.WASI_ESUCCESS;
+        const allRights = 0x1fffffffn;  // Use bigint literal
+        abi.writeFdstat(view, buf, filetype, 0, allRights, allRights);
       },
 
       fd_filestat_get: (fd: number, buf: number) => {
@@ -807,8 +808,7 @@ export function useMemoryFS(
             break;
         }
 
-        abi.writeFilestat(view, buf, filetype);
-        view.setBigUint64(buf + 32, BigInt(size), true);
+        abi.writeFilestat(view, buf, filetype, BigInt(size));
         return WASIAbi.WASI_ESUCCESS;
       },
 
@@ -817,6 +817,7 @@ export function useMemoryFS(
         if (fd < 3) return WASIAbi.WASI_ERRNO_BADF;
 
         const file = getFileFromFD(fd);
+
         if (!file || !file.isPreopen) return WASIAbi.WASI_ERRNO_BADF;
 
         view.setUint8(buf, 0);
@@ -972,8 +973,6 @@ export function useMemoryFS(
         buf: number
       ) => {
         const view = memoryView();
-
-        // Get the base FD entry; it must be a directory.
         const file = getFileFromFD(fd);
         if (!file) return WASIAbi.WASI_ERRNO_BADF;
         if (file.node.type !== "dir") {
@@ -981,21 +980,17 @@ export function useMemoryFS(
         }
 
         const guestRelPath = abi.readString(view, pathPtr, pathLen);
-
-        // Compute the full guest path.
         const basePath = file.path;
         const fullGuestPath = basePath.endsWith("/")
           ? basePath + guestRelPath
           : `${basePath}/${guestRelPath}`;
 
-        // Lookup the node in the MemoryFS.
         const node = fileSystem.lookup(fullGuestPath);
         if (!node) return WASIAbi.WASI_ERRNO_NOENT;
         if (node.type === "character" && node.kind === "stdio") {
           return WASIAbi.WASI_ERRNO_INVAL;
         }
 
-        // Determine file type and size.
         let filetype: number;
         let size = 0;
         if (node.type === "dir") {
@@ -1007,8 +1002,7 @@ export function useMemoryFS(
           size = getFileSize(node);
         }
 
-        abi.writeFilestat(view, buf, filetype);
-        view.setBigUint64(buf + 32, BigInt(size), true);
+        abi.writeFilestat(view, buf, filetype, BigInt(size));
         return WASIAbi.WASI_ESUCCESS;
       },
     };
