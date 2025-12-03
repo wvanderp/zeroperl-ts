@@ -37,8 +37,8 @@ import { ZeroPerl } from '@6over3/zeroperl-ts';
 
 const perl = await ZeroPerl.create();
 await perl.eval('print "Hello, World!\\n"');
-await perl.flush(); // Required to see output
-await perl.dispose();
+perl.flush(); // Required to see output
+perl.dispose();
 ```
 
 ## Output Buffering
@@ -48,7 +48,7 @@ Perl buffers output by default. Choose one approach:
 **Option 1: Call `flush()` after printing**
 ```typescript
 await perl.eval('print "Hello!\\n"');
-await perl.flush();
+perl.flush();
 ```
 
 **Option 2: Enable autoflush in Perl**
@@ -78,7 +78,7 @@ if (!result.success) {
   console.error('Error:', result.error);
 }
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Capturing Output
@@ -103,7 +103,7 @@ console.log(output);
 // Line 1
 // Line 2
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Exchanging Data
@@ -112,8 +112,8 @@ await perl.dispose();
 const perl = await ZeroPerl.create();
 
 // JavaScript to Perl
-await perl.setVariable('name', 'Alice');
-await perl.setVariable('age', 30);
+perl.setVariable('name', 'Alice');
+perl.setVariable('age', 30);
 
 await perl.eval(`
   $| = 1;
@@ -123,11 +123,11 @@ await perl.eval(`
 
 // Perl to JavaScript
 await perl.eval('$result = 2 + 2');
-const result = await perl.getVariable('result');
-console.log(await result.toInt()); // 4
+const result = perl.getVariable('result');
+console.log(result.toInt()); // 4
 
-await result.dispose();
-await perl.dispose();
+result.dispose();
+perl.dispose();
 ```
 
 ### Working with Arrays and Hashes
@@ -136,16 +136,16 @@ await perl.dispose();
 const perl = await ZeroPerl.create();
 
 // Create array
-const arr = await perl.createArray([1, 2, 3, 'hello']);
-await perl.setVariable('myarray', await arr.toValue());
+const arr = perl.createArray([1, 2, 3, 'hello']);
+perl.setVariable('myarray', arr.toValue());
 
 // Create hash
-const hash = await perl.createHash({
+const hash = perl.createHash({
   name: 'Alice',
   age: 30,
   active: true
 });
-await perl.setVariable('user', await hash.toValue());
+perl.setVariable('user', hash.toValue());
 
 await perl.eval(`
   $| = 1;
@@ -154,12 +154,12 @@ await perl.eval(`
 `);
 
 // Convert back to JavaScript
-const jsArray = await arr.project(); // [1, 2, 3, 'hello']
-const jsObject = await hash.project(); // { name: 'Alice', age: 30, active: true }
+const jsArray = arr.project(); // [1, 2, 3, 'hello']
+const jsObject = hash.project(); // { name: 'Alice', age: 30, active: true }
 
-await arr.dispose();
-await hash.dispose();
-await perl.dispose();
+arr.dispose();
+hash.dispose();
+perl.dispose();
 ```
 
 ### Command-Line Arguments
@@ -175,7 +175,7 @@ await perl.eval(`
   }
 `, ['foo', 'bar', 'baz']);
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ## Working with Files
@@ -201,7 +201,7 @@ const perl = await ZeroPerl.create({ fileSystem: fs });
 
 await perl.runFile('/script.pl');
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Running Scripts with Arguments
@@ -219,7 +219,7 @@ const perl = await ZeroPerl.create({ fileSystem: fs });
 await perl.runFile('/greet.pl', ['Alice', 'Hello']);
 // Output: Hello, Alice!
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Reading and Writing Files
@@ -242,7 +242,7 @@ await perl.eval(`
 const content = fs.readFile('/output.txt');
 console.log(content); // "Generated content\n"
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ## Advanced Usage
@@ -254,10 +254,10 @@ Register JavaScript functions that can be called from Perl:
 ```typescript
 const perl = await ZeroPerl.create();
 
-await perl.registerFunction('add', async (a, b) => {
-  const x = await a.toInt();
-  const y = await b.toInt();
-  return await perl.createInt(x + y);
+perl.registerFunction('add', (a, b) => {
+  const x = a.toInt();
+  const y = b.toInt();
+  return perl.createInt(x + y);
 });
 
 await perl.eval(`
@@ -266,7 +266,7 @@ await perl.eval(`
   print "Sum: $sum\\n";
 `);
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Registering JavaScript Methods
@@ -274,9 +274,9 @@ await perl.dispose();
 ```typescript
 const perl = await ZeroPerl.create();
 
-await perl.registerMethod('Math', 'square', async (x) => {
-  const num = await x.toInt();
-  return await perl.createInt(num * num);
+perl.registerMethod('Math', 'square', (x) => {
+  const num = x.toInt();
+  return perl.createInt(num * num);
 });
 
 await perl.eval(`
@@ -285,7 +285,7 @@ await perl.eval(`
   print "Square: $result\\n";
 `);
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Calling Perl Functions from JavaScript
@@ -298,28 +298,28 @@ await perl.eval(`
     my ($name) = @_;
     return "Hello, $name!";
   }
-  
+
   sub get_values {
     return (1, 2, 3);
   }
 `);
 
 // Scalar context (single return value)
-const arg = await perl.createString("Alice");
+const arg = perl.createString("Alice");
 const greeting = await perl.call("greet", [arg], "scalar");
-console.log(await greeting?.toString()); // "Hello, Alice!"
+console.log(greeting?.toString()); // "Hello, Alice!"
 
 // List context (multiple return values)
 const values = await perl.call("get_values", [], "list");
-console.log(await Promise.all(values.map(v => v.toInt()))); // [1, 2, 3]
+console.log(values.map(v => v.toInt())); // [1, 2, 3]
 
 // Void context (no return value)
 await perl.call("some_sub", [], "void");
 
-await arg.dispose();
-await greeting?.dispose();
-for (const v of values) await v.dispose();
-await perl.dispose();
+arg.dispose();
+greeting?.dispose();
+for (const v of values) v.dispose();
+perl.dispose();
 ```
 
 ### Error Handling
@@ -337,13 +337,13 @@ if (!result.success) {
 }
 
 // Get error directly
-const error = await perl.getLastError();
+const error = perl.getLastError();
 console.log(error); // "Something went wrong! at ..."
 
 // Clear error
-await perl.clearError();
+perl.clearError();
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Environment Variables
@@ -362,7 +362,7 @@ await perl.eval(`
   print "Debug: $ENV{DEBUG}\\n";
 `);
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Resetting State
@@ -371,16 +371,16 @@ await perl.dispose();
 const perl = await ZeroPerl.create();
 
 await perl.eval('$counter = 1');
-const val1 = await perl.getVariable('counter');
-console.log(await val1?.toInt()); // 1
+const val1 = perl.getVariable('counter');
+console.log(val1?.toInt()); // 1
 
 await perl.reset();
 
-const val2 = await perl.getVariable('counter');
+const val2 = perl.getVariable('counter');
 console.log(val2); // null
 
-await val1?.dispose();
-await perl.dispose();
+val1?.dispose();
+perl.dispose();
 ```
 
 ### Progressive Output
@@ -392,11 +392,11 @@ const perl = await ZeroPerl.create({
 
 for (let i = 0; i < 5; i++) {
   await perl.eval('print "."');
-  await perl.flush();
+  perl.flush();
   await new Promise(r => setTimeout(r, 500));
 }
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ## Browser Usage
@@ -418,7 +418,7 @@ await perl.eval(`
   print "Running in: $^O\\n";
 `);
 
-await perl.dispose();
+perl.dispose();
 ```
 
 Note: Most bundlers should copy the WASM file when imported explicitly. If your bundler doesn't handle this, configure it to copy static assets or use the CDN approach below.
@@ -448,8 +448,8 @@ Note: Most bundlers should copy the WASM file when imported explicitly. If your 
       print "Hello from Perl!\\n";
       print "Running in: $^O\\n";
     `);
-    
-    await perl.dispose();
+
+    perl.dispose();
   </script>
 </body>
 </html>
@@ -498,9 +498,9 @@ await perl.runFile('/script.pl', ['arg1', 'arg2']);
 Create Perl values. Returns `PerlValue`.
 
 ```typescript
-const num = await perl.createInt(42);
-const str = await perl.createString("hello");
-const bool = await perl.createBool(true);
+const num = perl.createInt(42);
+const str = perl.createString("hello");
+const bool = perl.createBool(true);
 ```
 
 ### `perl.createArray(values?)`, `perl.createHash(object?)`
@@ -508,8 +508,8 @@ const bool = await perl.createBool(true);
 Create Perl arrays and hashes. Returns `PerlArray` or `PerlHash`.
 
 ```typescript
-const arr = await perl.createArray([1, 2, 3]);
-const hash = await perl.createHash({ key: 'value' });
+const arr = perl.createArray([1, 2, 3]);
+const hash = perl.createHash({ key: 'value' });
 ```
 
 ### `perl.toPerlValue(value)`
@@ -517,7 +517,7 @@ const hash = await perl.createHash({ key: 'value' });
 Convert JavaScript value to Perl. Handles primitives, arrays, and objects.
 
 ```typescript
-const perlVal = await perl.toPerlValue({ name: 'Alice', age: 30 });
+const perlVal = perl.toPerlValue({ name: 'Alice', age: 30 });
 ```
 
 ### `perl.setVariable(name, value)`, `perl.getVariable(name)`
@@ -525,9 +525,9 @@ const perlVal = await perl.toPerlValue({ name: 'Alice', age: 30 });
 Set and get scalar variables. Variable names should not include the `$` prefix.
 
 ```typescript
-await perl.setVariable('x', 42);
-const x = await perl.getVariable('x');
-console.log(await x?.toInt()); // 42
+perl.setVariable('x', 42);
+const x = perl.getVariable('x');
+console.log(x?.toInt()); // 42
 ```
 
 ### `perl.getArrayVariable(name)`, `perl.getHashVariable(name)`
@@ -535,8 +535,8 @@ console.log(await x?.toInt()); // 42
 Get array and hash variables. Returns `PerlArray` or `PerlHash`.
 
 ```typescript
-const arr = await perl.getArrayVariable('myarray');
-const hash = await perl.getHashVariable('myhash');
+const arr = perl.getArrayVariable('myarray');
+const hash = perl.getHashVariable('myhash');
 ```
 
 ### `perl.registerFunction(name, fn)`
@@ -544,10 +544,10 @@ const hash = await perl.getHashVariable('myhash');
 Register a JavaScript function callable from Perl.
 
 ```typescript
-await perl.registerFunction('add', async (a, b) => {
-  const x = await a.toInt();
-  const y = await b.toInt();
-  return await perl.createInt(x + y);
+perl.registerFunction('add', (a, b) => {
+  const x = a.toInt();
+  const y = b.toInt();
+  return perl.createInt(x + y);
 });
 ```
 
@@ -556,9 +556,9 @@ await perl.registerFunction('add', async (a, b) => {
 Register a JavaScript method callable from Perl.
 
 ```typescript
-await perl.registerMethod('Math', 'square', async (x) => {
-  const num = await x.toInt();
-  return await perl.createInt(num * num);
+perl.registerMethod('Math', 'square', (x) => {
+  const num = x.toInt();
+  return perl.createInt(num * num);
 });
 ```
 
@@ -578,7 +578,7 @@ Flush output buffers. Required if autoflush (`$| = 1`) is not set.
 
 ```typescript
 await perl.eval('print "text"');
-await perl.flush();
+perl.flush();
 ```
 
 ### `perl.reset()`
@@ -594,8 +594,8 @@ await perl.reset();
 Get and clear the Perl error state (`$@`).
 
 ```typescript
-const error = await perl.getLastError();
-await perl.clearError();
+const error = perl.getLastError();
+perl.clearError();
 ```
 
 ### `perl.isInitialized()`, `perl.canEvaluate()`
@@ -603,7 +603,7 @@ await perl.clearError();
 Check interpreter state.
 
 ```typescript
-const ready = await perl.isInitialized() && await perl.canEvaluate();
+const ready = perl.isInitialized() && perl.canEvaluate();
 ```
 
 ### `perl.dispose()`, `perl.shutdown()`
@@ -611,9 +611,9 @@ const ready = await perl.isInitialized() && await perl.canEvaluate();
 Free resources. Use `dispose()` for normal cleanup, `shutdown()` for complete termination.
 
 ```typescript
-await perl.dispose();
+perl.dispose();
 // or
-await perl.shutdown();
+perl.shutdown();
 ```
 
 ### PerlValue Methods
@@ -640,7 +640,7 @@ await perl.shutdown();
 - `clear()` - Remove all elements
 - `toValue()` - Convert to PerlValue (array reference)
 - `project()` - Convert to JavaScript array
-- `[Symbol.asyncIterator]()` - Iterate over values
+- `[Symbol.iterator]()` - Iterate over values
 - `dispose()` - Free memory
 
 ### PerlHash Methods
@@ -680,7 +680,7 @@ fs.addFile("/process.pl", `
 
 const perl = await ZeroPerl.create({ fileSystem: fs });
 await perl.runFile('/process.pl');
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Interactive REPL
@@ -697,7 +697,7 @@ await perl.eval('print "$x\\n"');
 await perl.eval('$x *= 2');
 await perl.eval('print "$x\\n"');
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ### Complex Data Structures
@@ -705,7 +705,7 @@ await perl.dispose();
 ```typescript
 const perl = await ZeroPerl.create();
 
-await perl.setVariable('config', {
+perl.setVariable('config', {
   server: {
     host: 'localhost',
     port: 8080
@@ -720,7 +720,7 @@ await perl.eval(`
   print "Features: @{$config->{features}}\\n";
 `);
 
-await perl.dispose();
+perl.dispose();
 ```
 
 ## Development

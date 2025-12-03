@@ -63,6 +63,7 @@ export class WASIAbi {
      */
     static readonly WASI_FILETYPE_REGULAR_FILE = 4;
 
+
     static readonly IMPORT_FUNCTIONS = [
         "args_get",
         "args_sizes_get",
@@ -204,14 +205,23 @@ export class WASIAbi {
         return iovsBuffers;
     }
 
-    writeFilestat(memory: DataView, ptr: number, filetype: number, size: bigint = 0n): void {
+    writeFilestat(
+        memory: DataView,
+        ptr: number,
+        filetype: number,
+        size: bigint = 0n,
+        atim: bigint = 0n,
+        mtim: bigint = 0n,
+        ctim: bigint = 0n
+    ): void {
         memory.setBigUint64(ptr, /* dev */ 0n, true);
         memory.setBigUint64(ptr + 8, /* ino */ 0n, true);
         memory.setUint8(ptr + 16, filetype);
-        memory.setUint32(ptr + 24, /* nlink */ 1, true);  // nlink should be at least 1
+        memory.setBigUint64(ptr + 24, /* nlink */ 1n, true);
         memory.setBigUint64(ptr + 32, /* size */ size, true);
-        memory.setBigUint64(ptr + 40, /* atim */ 0n, true);
-        memory.setBigUint64(ptr + 48, /* mtim */ 0n, true);
+        memory.setBigUint64(ptr + 40, /* atim */ atim, true);
+        memory.setBigUint64(ptr + 48, /* mtim */ mtim, true);
+        memory.setBigUint64(ptr + 56, /* ctim */ ctim, true);
     }
 
     writeFdstat(

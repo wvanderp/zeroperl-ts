@@ -532,6 +532,14 @@ export function useMemoryFS(
       useOptions.withFileSystem || new MemoryFileSystem(wasiOptions.preopens);
     const files: { [fd: FileDescriptor]: OpenFile } = {};
 
+    function getFileTimes(node: FSNode): { atim: bigint; mtim: bigint; ctim: bigint } {
+      if (node.type === "file" && node.content instanceof Blob) {
+        const mtimNs = BigInt((node.content as File).lastModified ?? Date.now()) * 1_000_000n;
+        return { atim: mtimNs, mtim: mtimNs, ctim: mtimNs };
+      }
+      return { atim: 0n, mtim: 0n, ctim: 0n };
+    }
+
     bindStdio(useOptions.withStdIo || {}).forEach((entry, fd) => {
       files[fd] = {
         node: { type: "character", kind: "stdio", entry },
@@ -586,7 +594,6 @@ export function useMemoryFS(
         nread: number
       ) => {
         const view = memoryView();
-
         const iovViews = abi.iovViews(view, iovs, iovsLen);
         const file = getFileFromFD(fd);
         if (!file) {
@@ -611,6 +618,7 @@ export function useMemoryFS(
         const fileNode = file.node;
         const data = fileNode.content;
         const available = getFileSize(fileNode) - file.position;
+
         let totalRead = 0;
         if (available <= 0) {
           view.setUint32(nread, 0, true);
@@ -646,6 +654,7 @@ export function useMemoryFS(
             file.position += bytesToRead;
           }
         }
+
         view.setUint32(nread, totalRead, true);
         return WASIAbi.WASI_ESUCCESS;
       },
@@ -720,47 +729,50 @@ export function useMemoryFS(
         return WASIAbi.WASI_ESUCCESS;
       },
 
-      fd_seek: (
-        fd: number,
-        offset: bigint,
-        whence: number,
-        newOffset: number
-      ) => {
+      fd_seek: (fd: number, offset: bigint, whence: number, newOffsetPtr: number) => {
         const view = memoryView();
-        if (fd < 3) return WASIAbi.WASI_ERRNO_BADF;
 
         const file = getFileFromFD(fd);
-        if (!file || file.node.type !== "file") return WASIAbi.WASI_ERRNO_BADF;
+        if (!file) return WASIAbi.WASI_ERRNO_BADF;
 
-        let pos = file.position;
+        if (file.node.type === "dir") return WASIAbi.WASI_ERRNO_ISDIR;
+        if (file.node.type === "character") return WASIAbi.WASI_ERRNO_IO;
+
         const fileLength = getFileSize(file.node);
+        let newPosition: number;
 
         switch (whence) {
-          case 0:
-            pos = Number(offset);
+          case 0: // WHENCE_SET
+            newPosition = Number(offset);
             break;
-          case 1:
-            pos = pos + Number(offset);
+          case 1: // WHENCE_CUR
+            newPosition = file.position + Number(offset);
             break;
-          case 2:
-            pos = fileLength + Number(offset);
+          case 2: // WHENCE_END
+            newPosition = fileLength + Number(offset);
             break;
           default:
             return WASIAbi.WASI_ERRNO_INVAL;
         }
 
-        if (pos < 0) pos = 0;
-        file.position = pos;
-        view.setUint32(newOffset, pos, true);
+        if (newPosition < 0) {
+          return WASIAbi.WASI_ERRNO_INVAL;
+        }
+
+        file.position = newPosition;
+        view.setBigUint64(newOffsetPtr, BigInt(newPosition), true);
+
         return WASIAbi.WASI_ESUCCESS;
       },
 
       fd_tell: (fd: number, offset_ptr: number) => {
         const view = memoryView();
-        if (fd < 3) return WASIAbi.WASI_ERRNO_BADF;
 
         const file = getFileFromFD(fd);
         if (!file) return WASIAbi.WASI_ERRNO_BADF;
+
+        if (file.node.type === "dir") return WASIAbi.WASI_ERRNO_IO;
+        if (file.node.type === "character") return WASIAbi.WASI_ERRNO_IO;
 
         view.setBigUint64(offset_ptr, BigInt(file.position), true);
         return WASIAbi.WASI_ESUCCESS;
@@ -784,8 +796,9 @@ export function useMemoryFS(
             break;
         }
 
-        const allRights = 0x1fffffffn;  // Use bigint literal
+        const allRights = 0x1fffffffn;
         abi.writeFdstat(view, buf, filetype, 0, allRights, allRights);
+        return WASIAbi.WASI_ESUCCESS;
       },
 
       fd_filestat_get: (fd: number, buf: number) => {
@@ -808,7 +821,8 @@ export function useMemoryFS(
             break;
         }
 
-        abi.writeFilestat(view, buf, filetype, BigInt(size));
+        const { atim, mtim, ctim } = getFileTimes(entry.node);
+        abi.writeFilestat(view, buf, filetype, BigInt(size), atim, mtim, ctim);
         return WASIAbi.WASI_ESUCCESS;
       },
 
@@ -833,10 +847,9 @@ export function useMemoryFS(
         if (!file || !file.isPreopen) return WASIAbi.WASI_ERRNO_BADF;
 
         const pathStr = file.preopenPath || "";
-        if (pathStr.length !== pathLen) return WASIAbi.WASI_ERRNO_INVAL;
-
         const view = memoryView();
-        for (let i = 0; i < pathStr.length; i++) {
+        const len = Math.min(pathStr.length, pathLen);
+        for (let i = 0; i < len; i++) {
           view.setUint8(pathPtr + i, pathStr.charCodeAt(i));
         }
 
@@ -999,10 +1012,11 @@ export function useMemoryFS(
           filetype = WASIAbi.WASI_FILETYPE_CHARACTER_DEVICE;
         } else {
           filetype = WASIAbi.WASI_FILETYPE_REGULAR_FILE;
-          size = getFileSize(node);
+          size = getFileSize(node as FileNode);
         }
 
-        abi.writeFilestat(view, buf, filetype, BigInt(size));
+        const { atim, mtim, ctim } = getFileTimes(node);
+        abi.writeFilestat(view, buf, filetype, BigInt(size), atim, mtim, ctim);
         return WASIAbi.WASI_ESUCCESS;
       },
     };

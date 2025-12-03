@@ -16,20 +16,20 @@ import zeroperl from "./zeroperl.wasm";
 export { MemoryFileSystem } from "./wasi/features/fd";
 
 /**
- * @fileoverview Perl interpreter for WebAssembly.
+ * @fileoverview zeroperl-ts.
  *
  * Provides a JavaScript interface to a Perl interpreter running in WebAssembly.
  * Supports Perl value manipulation, arrays, hashes, references, and bidirectional
  * function calls between JavaScript and Perl.
- *
+ * 
  * @example
  * Basic usage:
  * ```typescript
- * import { ZeroPerl } from "./zeroperl";
+ * import { ZeroPerl } from "@6over3/zeroperl-ts";
  *
  * const perl = await ZeroPerl.create();
  * await perl.eval('print "Hello, World!\n"');
- * await perl.dispose();
+ * perl.dispose();
  * ```
  *
  * @example
@@ -38,22 +38,22 @@ export { MemoryFileSystem } from "./wasi/features/fd";
  * const perl = await ZeroPerl.create();
  *
  * // Create hash
- * const hash = await perl.createHash({
+ * const hash = perl.createHash({
  *   name: 'Alice',
  *   age: 30,
  *   active: true
  * });
  *
  * // Create array
- * const arr = await perl.createArray([1, 2, 3, "hello"]);
+ * const arr = perl.createArray([1, 2, 3, "hello"]);
  *
  * // Convert to JavaScript
- * const obj = await hash.project(); // { name: 'Alice', age: 30, active: true }
- * const jsArr = await arr.project(); // [1, 2, 3, "hello"]
+ * const obj = hash.project(); // { name: 'Alice', age: 30, active: true }
+ * const jsArr = arr.project(); // [1, 2, 3, "hello"]
  *
- * await hash.dispose();
- * await arr.dispose();
- * await perl.dispose();
+ * hash.dispose();
+ * arr.dispose();
+ * perl.dispose();
  * ```
  *
  * @example
@@ -61,194 +61,155 @@ export { MemoryFileSystem } from "./wasi/features/fd";
  * ```typescript
  * const perl = await ZeroPerl.create();
  *
- * await perl.registerFunction('greet', async (name) => {
- *   const nameStr = await name.toString();
+ * perl.registerFunction('greet', (name) => {
+ *   const nameStr = name.toString();
  *   console.log(`Hello, ${nameStr}!`);
- *   return await perl.createString(`Greeted ${nameStr}`);
+ *   return perl.createString(`Greeted ${nameStr}`);
  * });
  *
  * await perl.eval('greet("Alice")');
- * await perl.dispose();
+ * perl.dispose();
  * ```
  */
 
-/**
- * Perl value types.
- */
+/** Perl value types. */
 export type PerlValueType =
-    | "undef"
-    | "true"
-    | "false"
-    | "int"
-    | "double"
-    | "string"
-    | "array"
-    | "hash"
-    | "code"
-    | "ref";
+    | "undef" | "true" | "false" | "int" | "double"
+    | "string" | "array" | "hash" | "code" | "ref";
 
-/**
- * Perl calling context.
- */
+/** Perl calling context. */
 export type PerlContext = "void" | "scalar" | "list";
 
-/**
- * JavaScript values that can be converted to Perl values.
- */
+/** JavaScript values that can be converted to Perl values. */
 export type PerlConvertible =
-    | PerlValue
-    | string
-    | number
-    | boolean
-    | null
-    | undefined
-    | PerlConvertible[]
-    | { [key: string]: PerlConvertible };
+    | PerlValue | string | number | boolean | null | undefined
+    | PerlConvertible[] | { [key: string]: PerlConvertible };
 
-/**
- * JavaScript primitive types that Perl values can be converted to.
- */
+/** JavaScript primitive types that Perl values can be converted to. */
 export type JSPrimitive = string | number | boolean | null | undefined;
 
-/**
- * WebAssembly exports interface for ZeroPerl.
- * @private
- */
-interface ZeroPerlExports extends WebAssembly.Exports {
+// Synchronous exports (don't trigger asyncjmp_rt_start)
+interface ZeroPerlSyncExports {
     memory: WebAssembly.Memory;
-    malloc: (size: number) => Promise<number>;
-    free: (ptr: number) => Promise<void>;
+    malloc: (size: number) => number;
+    free: (ptr: number) => void;
 
-    zeroperl_init: () => Promise<number>;
-    zeroperl_init_with_args: (argc: number, argv: number) => Promise<number>;
-    zeroperl_free_interpreter: () => Promise<void>;
-    zeroperl_shutdown: () => Promise<void>;
-    zeroperl_reset: () => Promise<number>;
+    zeroperl_free_interpreter: () => void;
+    zeroperl_shutdown: () => void;
+    zeroperl_last_error: () => number;
+    zeroperl_clear_error: () => void;
+    zeroperl_is_initialized: () => number;
+    zeroperl_can_evaluate: () => number;
+    zeroperl_flush: () => number;
 
-    zeroperl_eval: (
-        code_ptr: number,
-        context: number,
-        argc: number,
-        argv: number,
-    ) => Promise<number>;
-    zeroperl_run_file: (
-        filepath_ptr: number,
-        argc: number,
-        argv: number,
-    ) => Promise<number>;
+    zeroperl_new_int: (i: number) => number;
+    zeroperl_new_uint: (u: number) => number;
+    zeroperl_new_double: (d: number) => number;
+    zeroperl_new_string: (ptr: number, len: number) => number;
+    zeroperl_new_bool: (b: number) => number;
+    zeroperl_new_undef: () => number;
 
-    zeroperl_last_error: () => Promise<number>;
-    zeroperl_clear_error: () => Promise<void>;
+    zeroperl_to_int: (val: number, out: number) => number;
+    zeroperl_to_double: (val: number, out: number) => number;
+    zeroperl_to_string: (val: number, len: number) => number;
+    zeroperl_to_bool: (val: number) => number;
+    zeroperl_is_undef: (val: number) => number;
+    zeroperl_get_type: (val: number) => number;
 
-    zeroperl_is_initialized: () => Promise<number>;
-    zeroperl_can_evaluate: () => Promise<number>;
-    zeroperl_flush: () => Promise<number>;
+    zeroperl_incref: (val: number) => void;
+    zeroperl_decref: (val: number) => void;
+    zeroperl_value_free: (val: number) => void;
 
-    zeroperl_new_int: (i: number) => Promise<number>;
-    zeroperl_new_uint: (u: number) => Promise<number>;
-    zeroperl_new_double: (d: number) => Promise<number>;
-    zeroperl_new_string: (str_ptr: number, len: number) => Promise<number>;
-    zeroperl_new_bool: (b: number) => Promise<number>;
-    zeroperl_new_undef: () => Promise<number>;
+    zeroperl_new_array: () => number;
+    zeroperl_array_push: (arr: number, val: number) => void;
+    zeroperl_array_pop: (arr: number) => number;
+    zeroperl_array_get: (arr: number, idx: number) => number;
+    zeroperl_array_set: (arr: number, idx: number, val: number) => number;
+    zeroperl_array_length: (arr: number) => number;
+    zeroperl_array_clear: (arr: number) => void;
+    zeroperl_array_to_value: (arr: number) => number;
+    zeroperl_value_to_array: (val: number) => number;
+    zeroperl_array_free: (arr: number) => void;
 
-    zeroperl_to_int: (val_ptr: number, out_ptr: number) => Promise<number>;
-    zeroperl_to_double: (val_ptr: number, out_ptr: number) => Promise<number>;
-    zeroperl_to_string: (val_ptr: number, len_ptr: number) => Promise<number>;
-    zeroperl_to_bool: (val_ptr: number) => Promise<number>;
-    zeroperl_is_undef: (val_ptr: number) => Promise<number>;
-    zeroperl_get_type: (val_ptr: number) => Promise<number>;
+    zeroperl_new_hash: () => number;
+    zeroperl_hash_set: (h: number, k: number, v: number) => number;
+    zeroperl_hash_get: (h: number, k: number) => number;
+    zeroperl_hash_exists: (h: number, k: number) => number;
+    zeroperl_hash_delete: (h: number, k: number) => number;
+    zeroperl_hash_clear: (h: number) => void;
+    zeroperl_hash_iter_new: (h: number) => number;
+    zeroperl_hash_iter_next: (it: number, k: number, v: number) => number;
+    zeroperl_hash_iter_free: (it: number) => void;
+    zeroperl_hash_to_value: (h: number) => number;
+    zeroperl_value_to_hash: (val: number) => number;
+    zeroperl_hash_free: (h: number) => void;
 
-    zeroperl_incref: (val_ptr: number) => Promise<void>;
-    zeroperl_decref: (val_ptr: number) => Promise<void>;
-    zeroperl_value_free: (val_ptr: number) => Promise<void>;
+    zeroperl_new_ref: (val: number) => number;
+    zeroperl_deref: (ref: number) => number;
+    zeroperl_is_ref: (val: number) => number;
 
-    zeroperl_new_array: () => Promise<number>;
-    zeroperl_array_push: (arr_ptr: number, val_ptr: number) => Promise<void>;
-    zeroperl_array_pop: (arr_ptr: number) => Promise<number>;
-    zeroperl_array_get: (arr_ptr: number, index: number) => Promise<number>;
-    zeroperl_array_set: (
-        arr_ptr: number,
-        index: number,
-        val_ptr: number,
-    ) => Promise<number>;
-    zeroperl_array_length: (arr_ptr: number) => Promise<number>;
-    zeroperl_array_clear: (arr_ptr: number) => Promise<void>;
-    zeroperl_array_to_value: (arr_ptr: number) => Promise<number>;
-    zeroperl_value_to_array: (val_ptr: number) => Promise<number>;
-    zeroperl_array_free: (arr_ptr: number) => Promise<void>;
+    zeroperl_get_var: (name: number) => number;
+    zeroperl_get_array_var: (name: number) => number;
+    zeroperl_get_hash_var: (name: number) => number;
+    zeroperl_set_var: (name: number, val: number) => number;
 
-    zeroperl_new_hash: () => Promise<number>;
-    zeroperl_hash_set: (
-        hash_ptr: number,
-        key_ptr: number,
-        val_ptr: number,
-    ) => Promise<number>;
-    zeroperl_hash_get: (hash_ptr: number, key_ptr: number) => Promise<number>;
-    zeroperl_hash_exists: (hash_ptr: number, key_ptr: number) => Promise<number>;
-    zeroperl_hash_delete: (hash_ptr: number, key_ptr: number) => Promise<number>;
-    zeroperl_hash_clear: (hash_ptr: number) => Promise<void>;
-    zeroperl_hash_iter_new: (hash_ptr: number) => Promise<number>;
-    zeroperl_hash_iter_next: (
-        iter_ptr: number,
-        key_out_ptr: number,
-        val_out_ptr: number,
-    ) => Promise<number>;
-    zeroperl_hash_iter_free: (iter_ptr: number) => Promise<void>;
-    zeroperl_hash_to_value: (hash_ptr: number) => Promise<number>;
-    zeroperl_value_to_hash: (val_ptr: number) => Promise<number>;
-    zeroperl_hash_free: (hash_ptr: number) => Promise<void>;
+    zeroperl_register_function: (id: number, name: number) => void;
+    zeroperl_register_method: (id: number, pkg: number, meth: number) => void;
 
-    zeroperl_new_ref: (val_ptr: number) => Promise<number>;
-    zeroperl_deref: (ref_ptr: number) => Promise<number>;
-    zeroperl_is_ref: (val_ptr: number) => Promise<number>;
+    zeroperl_result_get: (res: number, idx: number) => number;
+    zeroperl_result_free: (res: number) => void;
 
-    zeroperl_get_var: (name_ptr: number) => Promise<number>;
-    zeroperl_get_array_var: (name_ptr: number) => Promise<number>;
-    zeroperl_get_hash_var: (name_ptr: number) => Promise<number>;
-    zeroperl_set_var: (name_ptr: number, val_ptr: number) => Promise<number>;
-
-    zeroperl_register_function: (
-        func_id: number,
-        name_ptr: number,
-    ) => Promise<void>;
-    zeroperl_register_method: (
-        func_id: number,
-        package_ptr: number,
-        method_ptr: number,
-    ) => Promise<void>;
-
-    zeroperl_call: (
-        name_ptr: number,
-        context: number,
-        argc: number,
-        argv: number,
-    ) => Promise<number>;
-    zeroperl_result_get: (result_ptr: number, index: number) => Promise<number>;
-    zeroperl_result_free: (result_ptr: number) => Promise<void>;
-
-    zeroperl_set_host_error: (error_ptr: number) => Promise<void>;
-    zeroperl_get_host_error: () => Promise<number>;
-    zeroperl_clear_host_error: () => Promise<void>;
+    zeroperl_set_host_error: (err: number) => void;
+    zeroperl_get_host_error: () => number;
+    zeroperl_clear_host_error: () => void;
 }
 
-/**
- * Custom fetch implementation type.
- * @private
- */
+// Async exports (trigger asyncjmp_rt_start)
+interface ZeroPerlAsyncExports {
+    zeroperl_init: () => Promise<number>;
+    zeroperl_init_with_args: (argc: number, argv: number) => Promise<number>;
+    zeroperl_reset: () => Promise<number>;
+    zeroperl_eval: (code: number, ctx: number, argc: number, argv: number) => Promise<number>;
+    zeroperl_run_file: (path: number, argc: number, argv: number) => Promise<number>;
+    zeroperl_call: (name: number, ctx: number, argc: number, argv: number) => Promise<number>;
+}
+
+type ZeroPerlExports = ZeroPerlSyncExports & ZeroPerlAsyncExports & WebAssembly.Exports;
+
+// Synchronous exports that should not be wrapped by asyncify
+const SYNC_EXPORTS: string[] = [
+    "zeroperl_free_interpreter", "zeroperl_shutdown", "zeroperl_last_error",
+    "zeroperl_clear_error", "zeroperl_is_initialized", "zeroperl_can_evaluate",
+    "zeroperl_flush", "zeroperl_new_int", "zeroperl_new_uint", "zeroperl_new_double",
+    "zeroperl_new_string", "zeroperl_new_bool", "zeroperl_new_undef",
+    "zeroperl_to_int", "zeroperl_to_double", "zeroperl_to_string", "zeroperl_to_bool",
+    "zeroperl_is_undef", "zeroperl_get_type", "zeroperl_incref", "zeroperl_decref",
+    "zeroperl_value_free", "zeroperl_new_array", "zeroperl_array_push",
+    "zeroperl_array_pop", "zeroperl_array_get", "zeroperl_array_set",
+    "zeroperl_array_length", "zeroperl_array_clear", "zeroperl_array_to_value",
+    "zeroperl_value_to_array", "zeroperl_array_free", "zeroperl_new_hash",
+    "zeroperl_hash_set", "zeroperl_hash_get", "zeroperl_hash_exists",
+    "zeroperl_hash_delete", "zeroperl_hash_clear", "zeroperl_hash_iter_new",
+    "zeroperl_hash_iter_next", "zeroperl_hash_iter_free", "zeroperl_hash_to_value",
+    "zeroperl_value_to_hash", "zeroperl_hash_free", "zeroperl_new_ref",
+    "zeroperl_deref", "zeroperl_is_ref", "zeroperl_get_var", "zeroperl_get_array_var",
+    "zeroperl_get_hash_var", "zeroperl_set_var", "zeroperl_register_function",
+    "zeroperl_register_method", "zeroperl_result_get", "zeroperl_result_free",
+    "zeroperl_set_host_error", "zeroperl_get_host_error", "zeroperl_clear_host_error",
+];
+
 type FetchLike = (...args: unknown[]) => Promise<Response>;
 
 /**
  * Function type that can be registered as a Perl function.
- * 
  * Receives Perl values as arguments and returns a Perl value or void.
+ * Can be sync or async.
  */
 export type HostFunction = (
     ...args: PerlValue[]
 ) => PerlValue | Promise<PerlValue> | void | Promise<void>;
 
-/**
- * Error class for ZeroPerl operations.
- */
+/** Error class for ZeroPerl operations. */
 export class ZeroPerlError extends Error {
     readonly exitCode?: number;
     readonly perlError?: string;
@@ -258,38 +219,23 @@ export class ZeroPerlError extends Error {
         this.name = "ZeroPerlError";
         this.exitCode = exitCode;
         this.perlError = perlError;
-
-        if (Error.captureStackTrace) {
-            Error.captureStackTrace(this, ZeroPerlError);
-        }
+        if (Error.captureStackTrace) Error.captureStackTrace(this, ZeroPerlError);
     }
 }
 
-/**
- * Options for creating a ZeroPerl instance.
- */
+/** Options for creating a ZeroPerl instance. */
 export interface ZeroPerlOptions {
-    /** Environment variables to pass to Perl */
     env?: Record<string, string>;
-    /** Virtual filesystem to provide to Perl */
     fileSystem?: MemoryFileSystem;
-    /** Callback for stdout output */
     stdout?: (data: string | Uint8Array) => void;
-    /** Callback for stderr output */
     stderr?: (data: string | Uint8Array) => void;
-    /** Custom fetch implementation for loading the WASM module */
     fetch?: FetchLike;
 }
 
-/**
- * Result of a Perl evaluation or file execution.
- */
+/** Result of a Perl evaluation or file execution. */
 export interface ZeroPerlResult {
-    /** Whether the operation succeeded */
     success: boolean;
-    /** Error message if operation failed */
     error?: string;
-    /** Exit code from the operation */
     exitCode: number;
 }
 
@@ -305,9 +251,7 @@ function isBrowser(): boolean {
 async function loadWasmSource(fetchFn?: FetchLike): Promise<ArrayBuffer> {
     if (wasmSourceCache) {
         const cached = wasmSourceCache.deref();
-        if (cached) {
-            return cached;
-        }
+        if (cached) return cached;
     }
 
     let moduleData: ArrayBuffer;
@@ -339,45 +283,32 @@ async function loadWasmSource(fetchFn?: FetchLike): Promise<ArrayBuffer> {
 
 function mapPerlType(typeCode: number): PerlValueType {
     const types: PerlValueType[] = [
-        "undef",
-        "true",
-        "false",
-        "int",
-        "double",
-        "string",
-        "array",
-        "hash",
-        "code",
-        "ref",
+        "undef", "true", "false", "int", "double",
+        "string", "array", "hash", "code", "ref",
     ];
     return types[typeCode] || "undef";
 }
 
 function mapContext(context: PerlContext): number {
-    const contexts: Record<PerlContext, number> = {
-        void: 0,
-        scalar: 1,
-        list: 2,
-    };
-    return contexts[context];
+    return { void: 0, scalar: 1, list: 2 }[context];
 }
 
 /**
  * Wrapper for Perl scalar values.
  *
  * Represents any Perl scalar value (integers, floats, strings, references, etc).
- * Provides conversion methods to JavaScript types.
+ * All operations are synchronous.
  *
  * Memory must be explicitly freed by calling dispose().
  *
  * @example
  * ```typescript
- * const num = await perl.createInt(42);
- * console.log(await num.getType()); // 'int'
- * console.log(await num.toInt()); // 42
- * console.log(await num.toString()); // "42"
- * console.log(await num.project()); // 42
- * await num.dispose();
+ * const num = perl.createInt(42);
+ * console.log(num.getType()); // 'int'
+ * console.log(num.toInt()); // 42
+ * console.log(num.toString()); // "42"
+ * console.log(num.project()); // 42
+ * num.dispose();
  * ```
  */
 export class PerlValue {
@@ -399,100 +330,74 @@ export class PerlValue {
 
     /**
      * Convert value to a 32-bit integer.
-     * 
      * @throws {ZeroPerlError} If conversion fails
      */
-    async toInt(): Promise<number> {
+    toInt(): number {
         this.checkDisposed();
-        const outPtr = await this.exports.malloc(4);
+        const outPtr = this.exports.malloc(4);
         try {
-            const success =
-                (await this.exports.zeroperl_to_int(this.ptr, outPtr)) !== 0;
-            if (!success) {
+            if (!this.exports.zeroperl_to_int(this.ptr, outPtr)) {
                 throw new ZeroPerlError("Failed to convert value to int");
             }
-            const view = new DataView(this.exports.memory.buffer);
-            return view.getInt32(outPtr, true);
+            return new DataView(this.exports.memory.buffer).getInt32(outPtr, true);
         } finally {
-            await this.exports.free(outPtr);
+            this.exports.free(outPtr);
         }
     }
 
     /**
      * Convert value to a double-precision float.
-     * 
      * @throws {ZeroPerlError} If conversion fails
      */
-    async toDouble(): Promise<number> {
+    toDouble(): number {
         this.checkDisposed();
-        const outPtr = await this.exports.malloc(8);
+        const outPtr = this.exports.malloc(8);
         try {
-            const success =
-                (await this.exports.zeroperl_to_double(this.ptr, outPtr)) !== 0;
-            if (!success) {
+            if (!this.exports.zeroperl_to_double(this.ptr, outPtr)) {
                 throw new ZeroPerlError("Failed to convert value to double");
             }
-            const view = new DataView(this.exports.memory.buffer);
-            return view.getFloat64(outPtr, true);
+            return new DataView(this.exports.memory.buffer).getFloat64(outPtr, true);
         } finally {
-            await this.exports.free(outPtr);
+            this.exports.free(outPtr);
         }
     }
 
-    /**
-     * Convert value to a UTF-8 string.
-     */
-    async toString(): Promise<string> {
+    /** Convert value to a UTF-8 string. */
+    toString(): string {
         this.checkDisposed();
-        const lenPtr = await this.exports.malloc(4);
+        const lenPtr = this.exports.malloc(4);
         try {
-            const strPtr = await this.exports.zeroperl_to_string(this.ptr, lenPtr);
-            if (strPtr === 0) {
-                return "";
-            }
-            const view = new DataView(this.exports.memory.buffer);
-            const len = view.getUint32(lenPtr, true);
-            const bytes = new Uint8Array(this.exports.memory.buffer, strPtr, len);
-            return textDecoder.decode(bytes);
+            const strPtr = this.exports.zeroperl_to_string(this.ptr, lenPtr);
+            if (strPtr === 0) return "";
+            const len = new DataView(this.exports.memory.buffer).getUint32(lenPtr, true);
+            return textDecoder.decode(new Uint8Array(this.exports.memory.buffer, strPtr, len));
         } finally {
-            await this.exports.free(lenPtr);
+            this.exports.free(lenPtr);
         }
     }
 
-    /**
-     * Convert value to a boolean using Perl's truth test.
-     */
-    async toBoolean(): Promise<boolean> {
+    /** Convert value to a boolean using Perl's truth test. */
+    toBoolean(): boolean {
         this.checkDisposed();
-        const result = await this.exports.zeroperl_to_bool(this.ptr);
-        return result !== 0;
+        return this.exports.zeroperl_to_bool(this.ptr) !== 0;
     }
 
-    /**
-     * Check if value is undefined.
-     */
-    async isUndef(): Promise<boolean> {
+    /** Check if value is undefined. */
+    isUndef(): boolean {
         this.checkDisposed();
-        const result = await this.exports.zeroperl_is_undef(this.ptr);
-        return result !== 0;
+        return this.exports.zeroperl_is_undef(this.ptr) !== 0;
     }
 
-    /**
-     * Check if value is a reference.
-     */
-    async isRef(): Promise<boolean> {
+    /** Check if value is a reference. */
+    isRef(): boolean {
         this.checkDisposed();
-        const result = await this.exports.zeroperl_is_ref(this.ptr);
-        return result !== 0;
+        return this.exports.zeroperl_is_ref(this.ptr) !== 0;
     }
 
-    /**
-     * Get the type of this value.
-     */
-    async getType(): Promise<PerlValueType> {
+    /** Get the type of this value. */
+    getType(): PerlValueType {
         this.checkDisposed();
-        const typeCode = await this.exports.zeroperl_get_type(this.ptr);
-        return mapPerlType(typeCode);
+        return mapPerlType(this.exports.zeroperl_get_type(this.ptr));
     }
 
     /**
@@ -504,103 +409,64 @@ export class PerlValue {
      * - string → string
      * - true/false → boolean
      * - Other types → string representation
-     *
-     * @example
-     * ```typescript
-     * await perl.eval('$x = 42; $y = "hello"; $z = 1');
-     *
-     * const x = await perl.getVariable('x');
-     * const y = await perl.getVariable('y');
-     * const z = await perl.getVariable('z');
-     *
-     * console.log(await x.project()); // 42
-     * console.log(await y.project()); // "hello"
-     * console.log(await z.project()); // true
-     * ```
      */
-    async project(): Promise<JSPrimitive> {
+    project(): JSPrimitive {
         this.checkDisposed();
-
-        if (await this.isUndef()) {
-            return null;
-        }
-
-        const type = await this.getType();
-
+        if (this.isUndef()) return null;
+        const type = this.getType();
         switch (type) {
-            case 'true':
-                return true;
-            case 'false':
-                return false;
+            case 'true': return true;
+            case 'false': return false;
             case "int":
-            case "double":
-                return await this.toDouble();
-            case "string":
-                return await this.toString();
-            default:
-                return await this.toString();
+            case "double": return this.toDouble();
+            case "string": return this.toString();
+            default: return this.toString();
         }
     }
 
     /**
      * Create a reference to this value.
-     * 
      * @throws {ZeroPerlError} If reference creation fails
      */
-    async createRef(): Promise<PerlValue> {
+    createRef(): PerlValue {
         this.checkDisposed();
-        const refPtr = await this.exports.zeroperl_new_ref(this.ptr);
-        if (refPtr === 0) {
-            throw new ZeroPerlError("Failed to create reference");
-        }
+        const refPtr = this.exports.zeroperl_new_ref(this.ptr);
+        if (refPtr === 0) throw new ZeroPerlError("Failed to create reference");
         return new PerlValue(refPtr, this.exports);
     }
 
     /**
      * Dereference this value.
-     * 
-     * @throws {ZeroPerlError} If value is not a reference or dereferencing fails
+     * @throws {ZeroPerlError} If value is not a reference
      */
-    async deref(): Promise<PerlValue> {
+    deref(): PerlValue {
         this.checkDisposed();
-        const derefPtr = await this.exports.zeroperl_deref(this.ptr);
-        if (derefPtr === 0) {
-            throw new ZeroPerlError("Failed to dereference value (not a reference?)");
-        }
+        const derefPtr = this.exports.zeroperl_deref(this.ptr);
+        if (derefPtr === 0) throw new ZeroPerlError("Failed to dereference value");
         return new PerlValue(derefPtr, this.exports);
     }
 
-    /**
-     * Increment the reference count.
-     */
-    async incref(): Promise<void> {
+    /** Increment the reference count. */
+    incref(): void {
         this.checkDisposed();
-        await this.exports.zeroperl_incref(this.ptr);
+        this.exports.zeroperl_incref(this.ptr);
     }
 
-    /**
-     * Decrement the reference count.
-     */
-    async decref(): Promise<void> {
+    /** Decrement the reference count. */
+    decref(): void {
         this.checkDisposed();
-        await this.exports.zeroperl_decref(this.ptr);
+        this.exports.zeroperl_decref(this.ptr);
     }
 
-    /**
-     * Free this value's memory.
-     * 
-     * After calling dispose(), this value cannot be used.
-     */
-    async dispose(): Promise<void> {
+    /** Free this value's memory. After calling, this value cannot be used. */
+    dispose(): void {
         if (this.disposed) return;
-        await this.exports.zeroperl_value_free(this.ptr);
+        this.exports.zeroperl_value_free(this.ptr);
         this.disposed = true;
     }
 
     private checkDisposed(): void {
-        if (this.disposed) {
-            throw new ZeroPerlError("PerlValue has been disposed");
-        }
+        if (this.disposed) throw new ZeroPerlError("PerlValue has been disposed");
     }
 }
 
@@ -608,40 +474,17 @@ export class PerlValue {
  * Wrapper for Perl arrays.
  *
  * Provides push/pop operations, indexing, iteration, and conversion
- * to/from JavaScript arrays.
+ * to/from JavaScript arrays. All operations are synchronous.
  *
  * Memory must be explicitly freed by calling dispose().
  *
  * @example
  * ```typescript
- * // Create and manipulate
- * const arr = await perl.createArray();
- * await arr.push(1);
- * await arr.push("hello");
- * await arr.push(true);
- *
- * console.log(await arr.getLength()); // 3
- * const val = await arr.get(0);
- * console.log(await val?.toInt()); // 1
- *
- * await arr.dispose();
- * ```
- *
- * @example
- * ```typescript
- * // Create from JavaScript array
- * const arr = await perl.createArray([1, 2, 3, "hello", true]);
- * const jsArray = await arr.project(); // [1, 2, 3, "hello", true]
- * await arr.dispose();
- * ```
- *
- * @example
- * ```typescript
- * // Iteration
- * for await (const val of arr) {
- *   console.log(await val.project());
- *   await val.dispose();
- * }
+ * const arr = perl.createArray([1, 2, 3, "hello", true]);
+ * console.log(arr.getLength()); // 5
+ * console.log(arr.get(0)?.toInt()); // 1
+ * const jsArray = arr.project(); // [1, 2, 3, "hello", true]
+ * arr.dispose();
  * ```
  */
 export class PerlArray {
@@ -663,183 +506,112 @@ export class PerlArray {
         return this.ptr;
     }
 
-    /**
-     * Push a value onto the end of the array.
-     */
-    async push(value: PerlConvertible): Promise<void> {
+    /** Push a value onto the end of the array. */
+    push(value: PerlConvertible): void {
         this.checkDisposed();
-        const perlValue = await this.perl.toPerlValue(value);
+        const perlValue = this.perl.toPerlValue(value);
         try {
-            await this.exports.zeroperl_array_push(this.ptr, perlValue.getPtr());
+            this.exports.zeroperl_array_push(this.ptr, perlValue.getPtr());
         } finally {
-            if (!(value instanceof PerlValue)) {
-                await perlValue.dispose();
-            }
+            if (!(value instanceof PerlValue)) perlValue.dispose();
         }
     }
 
-    /**
-     * Pop a value from the end of the array.
-     * 
-     * @returns The popped value, or null if array is empty
-     */
-    async pop(): Promise<PerlValue | null> {
+    /** Pop a value from the end of the array. Returns null if empty. */
+    pop(): PerlValue | null {
         this.checkDisposed();
-        const valPtr = await this.exports.zeroperl_array_pop(this.ptr);
-        if (valPtr === 0) {
-            return null;
-        }
-        return new PerlValue(valPtr, this.exports);
+        const valPtr = this.exports.zeroperl_array_pop(this.ptr);
+        return valPtr === 0 ? null : new PerlValue(valPtr, this.exports);
     }
 
-    /**
-     * Get a value at the specified index.
-     * 
-     * @returns The value at the index, or null if out of bounds
-     */
-    async get(index: number): Promise<PerlValue | null> {
+    /** Get a value at the specified index. Returns null if out of bounds. */
+    get(index: number): PerlValue | null {
         this.checkDisposed();
-        const valPtr = await this.exports.zeroperl_array_get(this.ptr, index);
-        if (valPtr === 0) {
-            return null;
-        }
-        return new PerlValue(valPtr, this.exports);
+        const valPtr = this.exports.zeroperl_array_get(this.ptr, index);
+        return valPtr === 0 ? null : new PerlValue(valPtr, this.exports);
     }
 
     /**
      * Set a value at the specified index.
-     * 
      * @throws {ZeroPerlError} If index is invalid
      */
-    async set(index: number, value: PerlConvertible): Promise<void> {
+    set(index: number, value: PerlConvertible): void {
         this.checkDisposed();
-        const perlValue = await this.perl.toPerlValue(value);
+        const perlValue = this.perl.toPerlValue(value);
         try {
-            const success = await this.exports.zeroperl_array_set(
-                this.ptr,
-                index,
-                perlValue.getPtr(),
-            );
-            if (!success) {
-                throw new ZeroPerlError(
-                    `Failed to set array element at index ${index}`,
-                );
+            if (!this.exports.zeroperl_array_set(this.ptr, index, perlValue.getPtr())) {
+                throw new ZeroPerlError(`Failed to set array element at index ${index}`);
             }
         } finally {
-            if (!(value instanceof PerlValue)) {
-                await perlValue.dispose();
-            }
+            if (!(value instanceof PerlValue)) perlValue.dispose();
         }
     }
 
-    /**
-     * Get the length of the array.
-     */
-    async getLength(): Promise<number> {
+    /** Get the length of the array. */
+    getLength(): number {
         this.checkDisposed();
-        return await this.exports.zeroperl_array_length(this.ptr);
+        return this.exports.zeroperl_array_length(this.ptr);
     }
 
-    /**
-     * Clear all elements from the array.
-     */
-    async clear(): Promise<void> {
+    /** Clear all elements from the array. */
+    clear(): void {
         this.checkDisposed();
-        await this.exports.zeroperl_array_clear(this.ptr);
+        this.exports.zeroperl_array_clear(this.ptr);
     }
 
     /**
      * Convert this array to a PerlValue (array reference).
-     * 
      * @throws {ZeroPerlError} If conversion fails
      */
-    async toValue(): Promise<PerlValue> {
+    toValue(): PerlValue {
         this.checkDisposed();
-        const valPtr = await this.exports.zeroperl_array_to_value(this.ptr);
-        if (valPtr === 0) {
-            throw new ZeroPerlError("Failed to convert array to value");
-        }
+        const valPtr = this.exports.zeroperl_array_to_value(this.ptr);
+        if (valPtr === 0) throw new ZeroPerlError("Failed to convert array to value");
         return new PerlValue(valPtr, this.exports);
     }
 
-    /**
-     * Convert this Perl array to a JavaScript array.
-     *
-     * Each element is converted to a JavaScript primitive.
-     *
-     * @example
-     * ```typescript
-     * const arr = await perl.createArray();
-     * await arr.push(42);
-     * await arr.push("hello");
-     * await arr.push(true);
-     *
-     * const jsArray = await arr.project(); // [42, "hello", true]
-     * ```
-     */
-    async project(): Promise<JSPrimitive[]> {
+    /** Convert this Perl array to a JavaScript array of primitives. */
+    project(): JSPrimitive[] {
         this.checkDisposed();
-        const len = await this.getLength();
+        const len = this.getLength();
         const result: JSPrimitive[] = [];
-
         for (let i = 0; i < len; i++) {
-            const val = await this.get(i);
+            const val = this.get(i);
             if (val) {
-                result.push(await val.project());
-                await val.dispose();
+                result.push(val.project());
+                val.dispose();
             } else {
                 result.push(null);
             }
         }
-
         return result;
     }
 
-    /**
-     * Create a PerlArray from a PerlValue (must be an array reference).
-     *
-     * @internal
-     */
-    static async fromValue(
-        value: PerlValue,
-        perl: ZeroPerl,
-    ): Promise<PerlArray | null> {
+    /** @internal */
+    static fromValue(value: PerlValue, perl: ZeroPerl): PerlArray | null {
         const exports = (value as unknown as { exports: ZeroPerlExports }).exports;
-        const arrPtr = await exports.zeroperl_value_to_array(value.getPtr());
-        if (arrPtr === 0) {
-            return null;
-        }
-        return new PerlArray(arrPtr, exports, perl);
+        const arrPtr = exports.zeroperl_value_to_array(value.getPtr());
+        return arrPtr === 0 ? null : new PerlArray(arrPtr, exports, perl);
     }
 
-    /**
-     * Iterate over all values in the array.
-     */
-    async *[Symbol.asyncIterator](): AsyncGenerator<PerlValue, void, undefined> {
-        const len = await this.getLength();
+    /** Iterate over all values in the array. Remember to dispose yielded values. */
+    *[Symbol.iterator](): Generator<PerlValue, void, undefined> {
+        const len = this.getLength();
         for (let i = 0; i < len; i++) {
-            const val = await this.get(i);
-            if (val) {
-                yield val;
-            }
+            const val = this.get(i);
+            if (val) yield val;
         }
     }
 
-    /**
-     * Free this array's memory.
-     * 
-     * After calling dispose(), this array cannot be used.
-     */
-    async dispose(): Promise<void> {
+    /** Free this array's memory. After calling, this array cannot be used. */
+    dispose(): void {
         if (this.disposed) return;
-        await this.exports.zeroperl_array_free(this.ptr);
+        this.exports.zeroperl_array_free(this.ptr);
         this.disposed = true;
     }
 
     private checkDisposed(): void {
-        if (this.disposed) {
-            throw new ZeroPerlError("PerlArray has been disposed");
-        }
+        if (this.disposed) throw new ZeroPerlError("PerlArray has been disposed");
     }
 }
 
@@ -847,43 +619,16 @@ export class PerlArray {
  * Wrapper for Perl hashes.
  *
  * Provides a Map-like interface with iteration methods and conversion
- * to/from JavaScript objects.
+ * to/from JavaScript objects. All operations are synchronous.
  *
  * Memory must be explicitly freed by calling dispose().
  *
  * @example
  * ```typescript
- * // Create and manipulate
- * const hash = await perl.createHash();
- * await hash.set('name', 'Alice');
- * await hash.set('age', 30);
- *
- * const name = await hash.get('name');
- * console.log(await name?.toString()); // "Alice"
- *
- * await hash.dispose();
- * ```
- *
- * @example
- * ```typescript
- * // Create from JavaScript object
- * const hash = await perl.createHash({
- *   name: 'Alice',
- *   age: 30,
- *   active: true
- * });
- *
- * const obj = await hash.project(); // { name: 'Alice', age: 30, active: true }
- * await hash.dispose();
- * ```
- *
- * @example
- * ```typescript
- * // Iteration
- * for await (const [key, val] of hash.entries()) {
- *   console.log(`${key}: ${await val.project()}`);
- *   await val.dispose();
- * }
+ * const hash = perl.createHash({ name: 'Alice', age: 30, active: true });
+ * console.log(hash.get('name')?.toString()); // "Alice"
+ * const obj = hash.project(); // { name: 'Alice', age: 30, active: true }
+ * hash.dispose();
  * ```
  */
 export class PerlHash {
@@ -907,222 +652,138 @@ export class PerlHash {
 
     /**
      * Set a key-value pair in the hash.
-     * 
      * @throws {ZeroPerlError} If setting the key fails
      */
-    async set(key: string, value: PerlConvertible): Promise<void> {
+    set(key: string, value: PerlConvertible): void {
         this.checkDisposed();
-        const perlValue = await this.perl.toPerlValue(value);
-        const keyPtr = await this.writeCString(key);
+        const perlValue = this.perl.toPerlValue(value);
+        const keyPtr = this.writeCString(key);
         try {
-            const success =
-                (await this.exports.zeroperl_hash_set(
-                    this.ptr,
-                    keyPtr,
-                    perlValue.getPtr(),
-                )) !== 0;
-            if (!success) {
+            if (!this.exports.zeroperl_hash_set(this.ptr, keyPtr, perlValue.getPtr())) {
                 throw new ZeroPerlError(`Failed to set hash key '${key}'`);
             }
         } finally {
-            await this.exports.free(keyPtr);
-            if (!(value instanceof PerlValue)) {
-                await perlValue.dispose();
-            }
+            this.exports.free(keyPtr);
+            if (!(value instanceof PerlValue)) perlValue.dispose();
         }
     }
 
-    /**
-     * Get a value by key.
-     * 
-     * @returns The value for the key, or null if key doesn't exist
-     */
-    async get(key: string): Promise<PerlValue | null> {
+    /** Get a value by key. Returns null if key doesn't exist. */
+    get(key: string): PerlValue | null {
         this.checkDisposed();
-        const keyPtr = await this.writeCString(key);
+        const keyPtr = this.writeCString(key);
         try {
-            const valPtr = await this.exports.zeroperl_hash_get(this.ptr, keyPtr);
-            if (valPtr === 0) {
-                return null;
-            }
-            return new PerlValue(valPtr, this.exports);
+            const valPtr = this.exports.zeroperl_hash_get(this.ptr, keyPtr);
+            return valPtr === 0 ? null : new PerlValue(valPtr, this.exports);
         } finally {
-            await this.exports.free(keyPtr);
+            this.exports.free(keyPtr);
         }
     }
 
-    /**
-     * Check if a key exists in the hash.
-     */
-    async has(key: string): Promise<boolean> {
+    /** Check if a key exists in the hash. */
+    has(key: string): boolean {
         this.checkDisposed();
-        const keyPtr = await this.writeCString(key);
+        const keyPtr = this.writeCString(key);
         try {
-            const exists =
-                (await this.exports.zeroperl_hash_exists(this.ptr, keyPtr)) !== 0;
-            return exists;
+            return this.exports.zeroperl_hash_exists(this.ptr, keyPtr) !== 0;
         } finally {
-            await this.exports.free(keyPtr);
+            this.exports.free(keyPtr);
         }
     }
 
-    /**
-     * Delete a key from the hash.
-     * 
-     * @returns true if key was deleted, false if key didn't exist
-     */
-    async delete(key: string): Promise<boolean> {
+    /** Delete a key from the hash. Returns true if key was deleted. */
+    delete(key: string): boolean {
         this.checkDisposed();
-        const keyPtr = await this.writeCString(key);
+        const keyPtr = this.writeCString(key);
         try {
-            const deleted =
-                (await this.exports.zeroperl_hash_delete(this.ptr, keyPtr)) !== 0;
-            return deleted;
+            return this.exports.zeroperl_hash_delete(this.ptr, keyPtr) !== 0;
         } finally {
-            await this.exports.free(keyPtr);
+            this.exports.free(keyPtr);
         }
     }
 
-    /**
-     * Clear all entries from the hash.
-     */
-    async clear(): Promise<void> {
+    /** Clear all entries from the hash. */
+    clear(): void {
         this.checkDisposed();
-        await this.exports.zeroperl_hash_clear(this.ptr);
+        this.exports.zeroperl_hash_clear(this.ptr);
     }
 
     /**
      * Convert this hash to a PerlValue (hash reference).
-     * 
      * @throws {ZeroPerlError} If conversion fails
      */
-    async toValue(): Promise<PerlValue> {
+    toValue(): PerlValue {
         this.checkDisposed();
-        const valPtr = await this.exports.zeroperl_hash_to_value(this.ptr);
-        if (valPtr === 0) {
-            throw new ZeroPerlError("Failed to convert hash to value");
-        }
+        const valPtr = this.exports.zeroperl_hash_to_value(this.ptr);
+        if (valPtr === 0) throw new ZeroPerlError("Failed to convert hash to value");
         return new PerlValue(valPtr, this.exports);
     }
 
-    /**
-     * Convert this Perl hash to a JavaScript object.
-     *
-     * Each value is converted to a JavaScript primitive.
-     *
-     * @example
-     * ```typescript
-     * const hash = await perl.createHash();
-     * await hash.set('name', 'Alice');
-     * await hash.set('age', 30);
-     * await hash.set('active', true);
-     *
-     * const obj = await hash.project(); // { name: 'Alice', age: 30, active: true }
-     * ```
-     */
-    async project(): Promise<Record<string, JSPrimitive>> {
+    /** Convert this Perl hash to a JavaScript object. */
+    project(): Record<string, JSPrimitive> {
         this.checkDisposed();
         const result: Record<string, JSPrimitive> = {};
-
-        for await (const [key, val] of this.entries()) {
-            result[key] = await val.project();
-            await val.dispose();
+        for (const [key, val] of this.entries()) {
+            result[key] = val.project();
+            val.dispose();
         }
-
         return result;
     }
 
-    /**
-     * Create a PerlHash from a PerlValue (must be a hash reference).
-     *
-     * @internal
-     */
-    static async fromValue(
-        value: PerlValue,
-        perl: ZeroPerl,
-    ): Promise<PerlHash | null> {
+    /** @internal */
+    static fromValue(value: PerlValue, perl: ZeroPerl): PerlHash | null {
         const exports = (value as unknown as { exports: ZeroPerlExports }).exports;
-        const hashPtr = await exports.zeroperl_value_to_hash(value.getPtr());
-        if (hashPtr === 0) {
-            return null;
-        }
-        return new PerlHash(hashPtr, exports, perl);
+        const hashPtr = exports.zeroperl_value_to_hash(value.getPtr());
+        return hashPtr === 0 ? null : new PerlHash(hashPtr, exports, perl);
     }
 
-    /**
-     * Iterate over all key-value pairs.
-     */
-    async *entries(): AsyncGenerator<[string, PerlValue], void, undefined> {
+    /** Iterate over all key-value pairs. Remember to dispose yielded values. */
+    *entries(): Generator<[string, PerlValue], void, undefined> {
         this.checkDisposed();
-        const iterPtr = await this.exports.zeroperl_hash_iter_new(this.ptr);
-        if (iterPtr === 0) {
-            throw new ZeroPerlError("Failed to create hash iterator");
-        }
+        const iterPtr = this.exports.zeroperl_hash_iter_new(this.ptr);
+        if (iterPtr === 0) throw new ZeroPerlError("Failed to create hash iterator");
 
-        const keyOutPtr = await this.exports.malloc(4);
-        const valOutPtr = await this.exports.malloc(4);
+        const keyOutPtr = this.exports.malloc(4);
+        const valOutPtr = this.exports.malloc(4);
 
         try {
-            while (true) {
-                const hasNext = await this.exports.zeroperl_hash_iter_next(
-                    iterPtr,
-                    keyOutPtr,
-                    valOutPtr,
-                );
-                if (!hasNext) {
-                    break;
-                }
-
+            while (this.exports.zeroperl_hash_iter_next(iterPtr, keyOutPtr, valOutPtr)) {
                 const view = new DataView(this.exports.memory.buffer);
                 const keyPtr = view.getUint32(keyOutPtr, true);
                 const valPtr = view.getUint32(valOutPtr, true);
-
-                const key = this.readCString(keyPtr);
-                const val = new PerlValue(valPtr, this.exports);
-
-                yield [key, val];
+                yield [this.readCString(keyPtr), new PerlValue(valPtr, this.exports)];
             }
         } finally {
-            await this.exports.free(keyOutPtr);
-            await this.exports.free(valOutPtr);
-            await this.exports.zeroperl_hash_iter_free(iterPtr);
+            this.exports.free(keyOutPtr);
+            this.exports.free(valOutPtr);
+            this.exports.zeroperl_hash_iter_free(iterPtr);
         }
     }
 
-    /**
-     * Iterate over all keys.
-     */
-    async *keys(): AsyncGenerator<string, void, undefined> {
-        for await (const [key] of this.entries()) {
+    /** Iterate over all keys. */
+    *keys(): Generator<string, void, undefined> {
+        for (const [key, val] of this.entries()) {
+            val.dispose();
             yield key;
         }
     }
 
-    /**
-     * Iterate over all values.
-     */
-    async *values(): AsyncGenerator<PerlValue, void, undefined> {
-        for await (const [, val] of this.entries()) {
-            yield val;
-        }
+    /** Iterate over all values. Remember to dispose yielded values. */
+    *values(): Generator<PerlValue, void, undefined> {
+        for (const [, val] of this.entries()) yield val;
     }
 
-    /**
-     * Free this hash's memory.
-     * 
-     * After calling dispose(), this hash cannot be used.
-     */
-    async dispose(): Promise<void> {
+    /** Free this hash's memory. After calling, this hash cannot be used. */
+    dispose(): void {
         if (this.disposed) return;
-        await this.exports.zeroperl_hash_free(this.ptr);
+        this.exports.zeroperl_hash_free(this.ptr);
         this.disposed = true;
     }
 
-    private async writeCString(str: string): Promise<number> {
+    private writeCString(str: string): number {
         const bytes = textEncoder.encode(`${str}\0`);
-        const ptr = await this.exports.malloc(bytes.length);
-        const view = new Uint8Array(this.exports.memory.buffer);
-        view.set(bytes, ptr);
+        const ptr = this.exports.malloc(bytes.length);
+        new Uint8Array(this.exports.memory.buffer).set(bytes, ptr);
         return ptr;
     }
 
@@ -1130,73 +791,27 @@ export class PerlHash {
         if (ptr === 0) return "";
         const view = new Uint8Array(this.exports.memory.buffer);
         let len = 0;
-        while (view[ptr + len] !== 0) {
-            len++;
-        }
+        while (view[ptr + len] !== 0) len++;
         return textDecoder.decode(view.subarray(ptr, ptr + len));
     }
 
     private checkDisposed(): void {
-        if (this.disposed) {
-            throw new ZeroPerlError("PerlHash has been disposed");
-        }
+        if (this.disposed) throw new ZeroPerlError("PerlHash has been disposed");
     }
 }
 
 /**
- * Perl interpreter for WebAssembly.
- *
- * Main interface to the Perl interpreter. Supports:
- * - Evaluating Perl code and running scripts
- * - Creating and manipulating Perl values, arrays, and hashes
- * - Converting between JavaScript and Perl data structures
- * - Getting and setting Perl variables
- * - Registering JavaScript functions callable from Perl
- * - Calling Perl functions from JavaScript
- *
- * @example
- * ```typescript
- * const perl = await ZeroPerl.create();
- * await perl.eval('print "Hello, World!\n"');
- * await perl.dispose();
- * ```
- *
  * @example
  * ```typescript
  * const perl = await ZeroPerl.create();
  *
- * // Create hash
- * const user = await perl.createHash({
- *   name: 'Alice',
- *   age: 30,
- *   email: 'alice@example.com'
- * });
+ * const user = perl.createHash({ name: 'Alice', age: 30 });
+ * perl.setVariable('user', user.toValue());
  *
- * // Create array
- * const scores = await perl.createArray([95, 87, 92, 88]);
+ * await perl.eval('print "User: $user->{name}\n"');
  *
- * // Use in Perl
- * await perl.setVariable('user', await user.toValue());
- * await perl.setVariable('scores', await scores.toValue());
- * await perl.eval('print "User: $user->{name}, Age: $user->{age}\n"');
- *
- * await user.dispose();
- * await scores.dispose();
- * await perl.dispose();
- * ```
- *
- * @example
- * ```typescript
- * const perl = await ZeroPerl.create();
- *
- * await perl.registerFunction('process_data', async (data) => {
- *   const jsData = await data.project();
- *   const processed = jsData * 2;
- *   return await perl.toPerlValue(processed);
- * });
- *
- * await perl.eval('print process_data(21), "\n"'); // prints: 42
- * await perl.dispose();
+ * user.dispose();
+ * perl.dispose();
  * ```
  */
 export class ZeroPerl {
@@ -1204,6 +819,7 @@ export class ZeroPerl {
     private isDisposed = false;
     private hostFunctions: Map<number, HostFunction> = new Map();
     private nextFuncId = 1;
+
 
     private constructor(wasi: WASI) {
         this.wasi = wasi;
@@ -1215,7 +831,6 @@ export class ZeroPerl {
 
     /**
      * Create a new ZeroPerl instance.
-     * 
      * @throws {ZeroPerlError} If initialization fails
      */
     static async create(options: ZeroPerlOptions = {}): Promise<ZeroPerl> {
@@ -1226,24 +841,12 @@ export class ZeroPerl {
             env: options.env || {},
             args: ["zeroperl"],
             features: [
-                useEnviron,
-                useArgs,
-                useRandom,
-                useClock,
-                useProc,
+                useEnviron, useArgs, useRandom, useClock, useProc,
                 useMemoryFS({
                     withFileSystem: fileSystem,
                     withStdIo: {
-                        stdout: (data) => {
-                            if (options.stdout) {
-                                options.stdout(data);
-                            }
-                        },
-                        stderr: (data) => {
-                            if (options.stderr) {
-                                options.stderr(data);
-                            }
-                        },
+                        stdout: (data) => options.stdout?.(data),
+                        stderr: (data) => options.stderr?.(data),
                     },
                 }),
             ],
@@ -1253,74 +856,36 @@ export class ZeroPerl {
         const perl = new ZeroPerl(wasi);
 
         const hostCallFunction = async (
-            funcId: number,
-            argc: number,
-            argvPtr: number,
-        ): Promise<number> => {
-            return await perl.handleHostCall(funcId, argc, argvPtr);
-        };
+            funcId: number, argc: number, argvPtr: number,
+        ): Promise<number> => perl.handleHostCall(funcId, argc, argvPtr);
 
-        const { instance } = await instantiate(source, {
-            wasi_snapshot_preview1: wasi.wasiImport,
-            env: {
-                call_host_function: hostCallFunction,
+        const { instance } = await instantiate(
+            source,
+            {
+                wasi_snapshot_preview1: wasi.wasiImport,
+                env: { call_host_function: hostCallFunction },
             },
-        });
+            { unwrappedExports: SYNC_EXPORTS },
+        );
 
         await wasi.initialize(instance);
-
-        const required = [
-            "memory",
-            "malloc",
-            "free",
-            "zeroperl_init",
-            "zeroperl_eval",
-            "zeroperl_run_file",
-            "zeroperl_reset",
-            "zeroperl_free_interpreter",
-            "zeroperl_shutdown",
-            "zeroperl_last_error",
-            "zeroperl_clear_error",
-            "zeroperl_is_initialized",
-            "zeroperl_can_evaluate",
-            "zeroperl_flush",
-        ];
-
-        for (const name of required) {
-            if (!(name in perl.exports)) {
-                throw new ZeroPerlError(`Missing required export: ${name}`);
-            }
-        }
-
         const result = await perl.exports.zeroperl_init();
         if (result !== 0) {
-            const error = await perl.getLastError();
-            throw new ZeroPerlError(
-                "Failed to initialize Perl interpreter",
-                result,
-                error,
-            );
+            throw new ZeroPerlError("Failed to initialize Perl interpreter", result, perl.getLastError());
         }
 
         return perl;
     }
 
-    /** @internal */
-    private async handleHostCall(
-        funcId: number,
-        argc: number,
-        argvPtr: number,
-    ): Promise<number> {
+    private async handleHostCall(funcId: number, argc: number, argvPtr: number): Promise<number> {
         const func = this.hostFunctions.get(funcId);
         if (!func) {
-            const errorMsg = `Host function ${funcId} not found`;
-            const errorPtr = await this.writeCString(errorMsg);
-            await this.exports.zeroperl_set_host_error(errorPtr);
-            await this.exports.free(errorPtr);
+            this.setHostError(`Host function ${funcId} not found`);
             return 0;
         }
 
         try {
+
             const args: PerlValue[] = [];
             if (argc > 0) {
                 const view = new DataView(this.exports.memory.buffer);
@@ -1331,203 +896,134 @@ export class ZeroPerl {
                     }
                 }
             }
-
             const result = await func(...args);
-
             if (result instanceof PerlValue) {
                 return result.getPtr();
-            } else {
-                return await this.exports.zeroperl_new_undef();
             }
+            const undefPtr = this.exports.zeroperl_new_undef();
+            if (undefPtr === 0) {
+                this.setHostError("Failed to allocate return value");
+                return 0;
+            }
+            return undefPtr;
+
         } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            const errorPtr = await this.writeCString(errorMsg);
-            await this.exports.zeroperl_set_host_error(errorPtr);
-            await this.exports.free(errorPtr);
+            this.setHostError(error instanceof Error ? error.message : String(error));
             return 0;
+        }
+    }
+
+    private setHostError(message: string): void {
+        const errorPtr = this.writeCString(message);
+        if (errorPtr) {
+            this.exports.zeroperl_set_host_error(errorPtr);
+            this.exports.free(errorPtr);
         }
     }
 
     /**
      * Create a new integer value.
-     * 
      * @throws {ZeroPerlError} If value creation fails
      */
-    async createInt(value: number): Promise<PerlValue> {
+    createInt(value: number): PerlValue {
         this.checkDisposed();
-        const ptr = await this.exports.zeroperl_new_int(Math.floor(value));
-        if (ptr === 0) {
-            throw new ZeroPerlError("Failed to create integer value");
-        }
+        const ptr = this.exports.zeroperl_new_int(Math.floor(value));
+        if (ptr === 0) throw new ZeroPerlError("Failed to create integer value");
         return new PerlValue(ptr, this.exports);
     }
 
     /**
      * Create a new unsigned integer value.
-     * 
      * @throws {ZeroPerlError} If value creation fails
      */
-    async createUInt(value: number): Promise<PerlValue> {
+    createUInt(value: number): PerlValue {
         this.checkDisposed();
-        const ptr = await this.exports.zeroperl_new_uint(
-            Math.floor(Math.abs(value)),
-        );
-        if (ptr === 0) {
-            throw new ZeroPerlError("Failed to create unsigned integer value");
-        }
+        const ptr = this.exports.zeroperl_new_uint(Math.floor(Math.abs(value)));
+        if (ptr === 0) throw new ZeroPerlError("Failed to create unsigned integer value");
         return new PerlValue(ptr, this.exports);
     }
 
     /**
      * Create a new double-precision float value.
-     * 
      * @throws {ZeroPerlError} If value creation fails
      */
-    async createDouble(value: number): Promise<PerlValue> {
+    createDouble(value: number): PerlValue {
         this.checkDisposed();
-        const ptr = await this.exports.zeroperl_new_double(value);
-        if (ptr === 0) {
-            throw new ZeroPerlError("Failed to create double value");
-        }
+        const ptr = this.exports.zeroperl_new_double(value);
+        if (ptr === 0) throw new ZeroPerlError("Failed to create double value");
         return new PerlValue(ptr, this.exports);
     }
 
     /**
      * Create a new string value.
-     * 
      * @throws {ZeroPerlError} If value creation fails
      */
-    async createString(value: string): Promise<PerlValue> {
+    createString(value: string): PerlValue {
         this.checkDisposed();
         const bytes = textEncoder.encode(value);
-        const strPtr = await this.exports.malloc(bytes.length);
-        const view = new Uint8Array(this.exports.memory.buffer);
-        view.set(bytes, strPtr);
+        const strPtr = this.exports.malloc(bytes.length);
+        new Uint8Array(this.exports.memory.buffer).set(bytes, strPtr);
 
         try {
-            const valPtr = await this.exports.zeroperl_new_string(
-                strPtr,
-                bytes.length,
-            );
-            if (valPtr === 0) {
-                throw new ZeroPerlError("Failed to create string value");
-            }
+            const valPtr = this.exports.zeroperl_new_string(strPtr, bytes.length);
+            if (valPtr === 0) throw new ZeroPerlError("Failed to create string value");
             return new PerlValue(valPtr, this.exports);
         } finally {
-            await this.exports.free(strPtr);
+            this.exports.free(strPtr);
         }
     }
 
     /**
      * Create a new boolean value.
-     * 
      * @throws {ZeroPerlError} If value creation fails
      */
-    async createBool(value: boolean): Promise<PerlValue> {
+    createBool(value: boolean): PerlValue {
         this.checkDisposed();
-        const ptr = await this.exports.zeroperl_new_bool(value ? 1 : 0);
-        if (ptr === 0) {
-            throw new ZeroPerlError("Failed to create boolean value");
-        }
+        const ptr = this.exports.zeroperl_new_bool(value ? 1 : 0);
+        if (ptr === 0) throw new ZeroPerlError("Failed to create boolean value");
         return new PerlValue(ptr, this.exports);
     }
 
     /**
      * Create a new undefined value.
-     * 
      * @throws {ZeroPerlError} If value creation fails
      */
-    async createUndef(): Promise<PerlValue> {
+    createUndef(): PerlValue {
         this.checkDisposed();
-        const ptr = await this.exports.zeroperl_new_undef();
-        if (ptr === 0) {
-            throw new ZeroPerlError("Failed to create undef value");
-        }
+        const ptr = this.exports.zeroperl_new_undef();
+        if (ptr === 0) throw new ZeroPerlError("Failed to create undef value");
         return new PerlValue(ptr, this.exports);
     }
 
     /**
      * Create a new Perl array, optionally populated with values.
-     *
-     * @param values Optional array of JavaScript values to populate the array with
      * @throws {ZeroPerlError} If array creation fails
-     * 
-     * @example
-     * ```typescript
-     * const arr = await perl.createArray();
-     * await arr.push(1);
-     * await arr.push(2);
-     * await arr.dispose();
-     * ```
-     *
-     * @example
-     * ```typescript
-     * const arr = await perl.createArray([1, 2, 3, "hello", true, null]);
-     * await perl.setVariable('myarr', await arr.toValue());
-     * await perl.eval('print "Length: ", scalar(@$myarr), "\n"');
-     * await arr.dispose();
-     * ```
      */
-    async createArray(values?: PerlConvertible[]): Promise<PerlArray> {
+    createArray(values?: PerlConvertible[]): PerlArray {
         this.checkDisposed();
-        const ptr = await this.exports.zeroperl_new_array();
-        if (ptr === 0) {
-            throw new ZeroPerlError("Failed to create array");
-        }
+        const ptr = this.exports.zeroperl_new_array();
+        if (ptr === 0) throw new ZeroPerlError("Failed to create array");
 
         const perlArray = new PerlArray(ptr, this.exports, this);
-
         if (values) {
-            for (const item of values) {
-                await perlArray.push(item);
-            }
+            for (const item of values) perlArray.push(item);
         }
-
         return perlArray;
     }
 
     /**
      * Create a new Perl hash, optionally populated with values.
-     *
-     * @param object Optional JavaScript object to populate the hash with
      * @throws {ZeroPerlError} If hash creation fails
-     * 
-     * @example
-     * ```typescript
-     * const hash = await perl.createHash();
-     * await hash.set('name', 'Alice');
-     * await hash.set('age', 30);
-     * await hash.dispose();
-     * ```
-     *
-     * @example
-     * ```typescript
-     * const hash = await perl.createHash({
-     *   name: 'Alice',
-     *   age: 30,
-     *   active: true,
-     *   score: 95.5
-     * });
-     * await perl.setVariable('user', await hash.toValue());
-     * await perl.eval('print "User: $user->{name}, Age: $user->{age}\n"');
-     * await hash.dispose();
-     * ```
      */
-    async createHash(object?: Record<string, PerlConvertible>): Promise<PerlHash> {
+    createHash(object?: Record<string, PerlConvertible>): PerlHash {
         this.checkDisposed();
-        const ptr = await this.exports.zeroperl_new_hash();
-        if (ptr === 0) {
-            throw new ZeroPerlError("Failed to create hash");
-        }
+        const ptr = this.exports.zeroperl_new_hash();
+        if (ptr === 0) throw new ZeroPerlError("Failed to create hash");
 
         const perlHash = new PerlHash(ptr, this.exports, this);
-
         if (object) {
-            for (const [key, value] of Object.entries(object)) {
-                await perlHash.set(key, value);
-            }
+            for (const [key, value] of Object.entries(object)) perlHash.set(key, value);
         }
-
         return perlHash;
     }
 
@@ -1543,228 +1039,146 @@ export class ZeroPerl {
      * - string → Perl string
      * - array → Perl array reference
      * - object → Perl hash reference
-     * 
+     *
      * @throws {ZeroPerlError} If conversion fails
      */
-    async toPerlValue(value: PerlConvertible): Promise<PerlValue> {
-        if (value instanceof PerlValue) {
-            return value;
-        }
-
-        if (value === null || value === undefined) {
-            return await this.createUndef();
-        }
-
-        if (typeof value === 'boolean') {
-            return await this.createBool(value);
-        }
-
+    toPerlValue(value: PerlConvertible): PerlValue {
+        if (value instanceof PerlValue) return value;
+        if (value === null || value === undefined) return this.createUndef();
+        if (typeof value === 'boolean') return this.createBool(value);
         if (typeof value === 'number') {
-            if (Number.isInteger(value)) {
-                return await this.createInt(value);
-            } else {
-                return await this.createDouble(value);
-            }
+            return Number.isInteger(value) ? this.createInt(value) : this.createDouble(value);
         }
-
-        if (typeof value === 'string') {
-            return await this.createString(value);
-        }
-
+        if (typeof value === 'string') return this.createString(value);
         if (Array.isArray(value)) {
-            const arr = await this.createArray(value);
-            const val = await arr.toValue();
-            await arr.dispose();
+            const arr = this.createArray(value);
+            const val = arr.toValue();
+            arr.dispose();
             return val;
         }
-
         if (typeof value === 'object') {
-            const hash = await this.createHash(value);
-            const val = await hash.toValue();
-            await hash.dispose();
+            const hash = this.createHash(value);
+            const val = hash.toValue();
+            hash.dispose();
             return val;
         }
-
         throw new ZeroPerlError(`Cannot convert value of type ${typeof value} to PerlValue`);
     }
 
-    /**
-     * Get a global scalar variable.
-     * 
-     * @returns The variable's value, or null if variable doesn't exist
-     */
-    async getVariable(name: string): Promise<PerlValue | null> {
+    /** Get a global scalar variable. Returns null if variable doesn't exist. */
+    getVariable(name: string): PerlValue | null {
         this.checkDisposed();
-        const namePtr = await this.writeCString(name);
+        const namePtr = this.writeCString(name);
         try {
-            const valPtr = await this.exports.zeroperl_get_var(namePtr);
-            if (valPtr === 0) {
-                return null;
-            }
-            return new PerlValue(valPtr, this.exports);
+            const valPtr = this.exports.zeroperl_get_var(namePtr);
+            return valPtr === 0 ? null : new PerlValue(valPtr, this.exports);
         } finally {
-            await this.exports.free(namePtr);
+            this.exports.free(namePtr);
         }
     }
 
-    /**
-     * Get a global array variable.
-     * 
-     * @returns The array, or null if variable doesn't exist
-     */
-    async getArrayVariable(name: string): Promise<PerlArray | null> {
+    /** Get a global array variable. Returns null if variable doesn't exist. */
+    getArrayVariable(name: string): PerlArray | null {
         this.checkDisposed();
-        const namePtr = await this.writeCString(name);
+        const namePtr = this.writeCString(name);
         try {
-            const arrPtr = await this.exports.zeroperl_get_array_var(namePtr);
-            if (arrPtr === 0) {
-                return null;
-            }
-            return new PerlArray(arrPtr, this.exports, this);
+            const arrPtr = this.exports.zeroperl_get_array_var(namePtr);
+            return arrPtr === 0 ? null : new PerlArray(arrPtr, this.exports, this);
         } finally {
-            await this.exports.free(namePtr);
+            this.exports.free(namePtr);
         }
     }
 
-    /**
-     * Get a global hash variable.
-     * 
-     * @returns The hash, or null if variable doesn't exist
-     */
-    async getHashVariable(name: string): Promise<PerlHash | null> {
+    /** Get a global hash variable. Returns null if variable doesn't exist. */
+    getHashVariable(name: string): PerlHash | null {
         this.checkDisposed();
-        const namePtr = await this.writeCString(name);
+        const namePtr = this.writeCString(name);
         try {
-            const hashPtr = await this.exports.zeroperl_get_hash_var(namePtr);
-            if (hashPtr === 0) {
-                return null;
-            }
-            return new PerlHash(hashPtr, this.exports, this);
+            const hashPtr = this.exports.zeroperl_get_hash_var(namePtr);
+            return hashPtr === 0 ? null : new PerlHash(hashPtr, this.exports, this);
         } finally {
-            await this.exports.free(namePtr);
+            this.exports.free(namePtr);
         }
     }
 
     /**
      * Set a global scalar variable.
-     * 
      * @throws {ZeroPerlError} If setting the variable fails
      */
-    async setVariable(name: string, value: PerlConvertible): Promise<void> {
+    setVariable(name: string, value: PerlConvertible): void {
         this.checkDisposed();
-        const perlValue = await this.toPerlValue(value);
-        const namePtr = await this.writeCString(name);
+        const perlValue = this.toPerlValue(value);
+        const namePtr = this.writeCString(name);
         try {
-            const success =
-                (await this.exports.zeroperl_set_var(namePtr, perlValue.getPtr())) !==
-                0;
-            if (!success) {
+            if (!this.exports.zeroperl_set_var(namePtr, perlValue.getPtr())) {
                 throw new ZeroPerlError(`Failed to set variable '${name}'`);
             }
         } finally {
-            await this.exports.free(namePtr);
-            if (!(value instanceof PerlValue)) {
-                await perlValue.dispose();
-            }
+            this.exports.free(namePtr);
+            if (!(value instanceof PerlValue)) perlValue.dispose();
         }
     }
 
     /**
      * Register a JavaScript function that can be called from Perl.
-     * 
      * The function receives Perl values as arguments and returns a Perl value or void.
-     * 
+     *
      * @example
      * ```typescript
-     * await perl.registerFunction('add', async (a, b) => {
-     *   const x = await a.toInt();
-     *   const y = await b.toInt();
-     *   return await perl.createInt(x + y);
+     * perl.registerFunction('add', (a, b) => {
+     *   return perl.createInt(a.toInt() + b.toInt());
      * });
      * await perl.eval('print add(10, 32), "\n"'); // prints: 42
      * ```
      */
-    async registerFunction(name: string, fn: HostFunction): Promise<void> {
+    registerFunction(name: string, fn: HostFunction): void {
         this.checkDisposed();
         const funcId = this.nextFuncId++;
         this.hostFunctions.set(funcId, fn);
 
-        const namePtr = await this.writeCString(name);
+        const namePtr = this.writeCString(name);
         try {
-            await this.exports.zeroperl_register_function(funcId, namePtr);
+            this.exports.zeroperl_register_function(funcId, namePtr);
         } finally {
-            await this.exports.free(namePtr);
+            this.exports.free(namePtr);
         }
     }
 
     /**
      * Register a JavaScript method that can be called from Perl.
-     * 
-     * The method receives Perl values as arguments and returns a Perl value or void.
-     * 
+     *
      * @example
      * ```typescript
-     * await perl.registerMethod('Math', 'square', async (x) => {
-     *   const num = await x.toInt();
-     *   return await perl.createInt(num * num);
+     * perl.registerMethod('Math', 'square', (x) => {
+     *   const num = x.toInt();
+     *   return perl.createInt(num * num);
      * });
      * await perl.eval('$result = Math::square(7)'); // $result = 49
      * ```
      */
-    async registerMethod(
-        packageName: string,
-        methodName: string,
-        fn: HostFunction,
-    ): Promise<void> {
+    registerMethod(packageName: string, methodName: string, fn: HostFunction): void {
         this.checkDisposed();
         const funcId = this.nextFuncId++;
         this.hostFunctions.set(funcId, fn);
 
-        const pkgPtr = await this.writeCString(packageName);
-        const methPtr = await this.writeCString(methodName);
+        const pkgPtr = this.writeCString(packageName);
+        const methPtr = this.writeCString(methodName);
         try {
-            await this.exports.zeroperl_register_method(funcId, pkgPtr, methPtr);
+            this.exports.zeroperl_register_method(funcId, pkgPtr, methPtr);
         } finally {
-            await this.exports.free(pkgPtr);
-            await this.exports.free(methPtr);
+            this.exports.free(pkgPtr);
+            this.exports.free(methPtr);
         }
     }
 
-    /**
-     * Call a Perl subroutine in void context (no return value).
-     */
-    call(
-        name: string,
-        args: PerlValue[],
-        context: "void",
-    ): Promise<undefined>;
-
-    /**
-     * Call a Perl subroutine in scalar context (returns single value or null).
-     */
-    call(
-        name: string,
-        args: PerlValue[],
-        context: "scalar",
-    ): Promise<PerlValue | null>;
-
-    /**
-     * Call a Perl subroutine in list context (returns array of values).
-     */
-    call(
-        name: string,
-        args: PerlValue[],
-        context: "list",
-    ): Promise<PerlValue[]>;
-
-    /**
-     * Call a Perl subroutine (defaults to scalar context).
-     */
-    call(
-        name: string,
-        args?: PerlValue[],
-        context?: PerlContext,
-    ): Promise<PerlValue | null>;
+    /** Call a Perl subroutine in void context. */
+    call(name: string, args: PerlValue[], context: "void"): Promise<undefined>;
+    /** Call a Perl subroutine in scalar context. */
+    call(name: string, args: PerlValue[], context: "scalar"): Promise<PerlValue | null>;
+    /** Call a Perl subroutine in list context. */
+    call(name: string, args: PerlValue[], context: "list"): Promise<PerlValue[]>;
+    /** Call a Perl subroutine (defaults to scalar context). */
+    call(name: string, args?: PerlValue[], context?: PerlContext): Promise<PerlValue | null>;
 
     async call(
         name: string,
@@ -1773,31 +1187,22 @@ export class ZeroPerl {
     ): Promise<undefined | PerlValue | null | PerlValue[]> {
         this.checkDisposed();
 
-        const namePtr = await this.writeCString(name);
+        const namePtr = this.writeCString(name);
         const contextNum = mapContext(context);
-
         let argvPtr = 0;
 
         if (args.length > 0) {
-            argvPtr = await this.exports.malloc(args.length * 4);
+            argvPtr = this.exports.malloc(args.length * 4);
             const view = new DataView(this.exports.memory.buffer);
             for (let i = 0; i < args.length; i++) {
                 const arg = args[i];
-                if (!arg) {
-                    throw new ZeroPerlError(`Argument at index ${i} is undefined`);
-                }
-                const ptr = arg.getPtr();
-                view.setUint32(argvPtr + i * 4, ptr, true);
+                if (!arg) throw new ZeroPerlError(`Argument at index ${i} is undefined`);
+                view.setUint32(argvPtr + i * 4, arg.getPtr(), true);
             }
         }
 
         try {
-            const resultPtr = await this.exports.zeroperl_call(
-                namePtr,
-                contextNum,
-                args.length,
-                argvPtr,
-            );
+            const resultPtr = await this.exports.zeroperl_call(namePtr, contextNum, args.length, argvPtr);
 
             if (resultPtr === 0) {
                 if (context === "void") return;
@@ -1810,31 +1215,20 @@ export class ZeroPerl {
 
             const results: PerlValue[] = [];
             for (let i = 0; i < count; i++) {
-                const valPtr = await this.exports.zeroperl_result_get(resultPtr, i);
-                if (valPtr !== 0) {
-                    results.push(new PerlValue(valPtr, this.exports));
-                }
+                const valPtr = this.exports.zeroperl_result_get(resultPtr, i);
+                if (valPtr !== 0) results.push(new PerlValue(valPtr, this.exports));
             }
 
             const valuesArrayPtr = view.getUint32(resultPtr + 4, true);
-            if (valuesArrayPtr !== 0) {
-                await this.exports.free(valuesArrayPtr);
-            }
-
-            await this.exports.free(resultPtr);
+            if (valuesArrayPtr !== 0) this.exports.free(valuesArrayPtr);
+            this.exports.free(resultPtr);
 
             if (context === "void") {
-                for (const val of results) {
-                    await val.dispose();
-                }
+                for (const val of results) val.dispose();
                 return;
             }
-
-            if (context === "scalar") {
-                return results[0] ?? null;
-            }
+            if (context === "scalar") return results[0] ?? null;
             return results;
-
         } catch (e) {
             if (e instanceof WASIProcExit) {
                 if (context === "void") return;
@@ -1843,252 +1237,178 @@ export class ZeroPerl {
             }
             throw e;
         } finally {
-            await this.exports.free(namePtr);
-            if (argvPtr !== 0) {
-                await this.exports.free(argvPtr);
-            }
+            this.exports.free(namePtr);
+            if (argvPtr !== 0) this.exports.free(argvPtr);
         }
     }
 
     /**
      * Evaluate a string of Perl code.
-     * 
      * @param code Perl code to evaluate
      * @param args Arguments to pass as @ARGV
-     * @returns Result indicating success or failure
      */
     async eval(code: string, args: string[] = []): Promise<ZeroPerlResult> {
         this.checkDisposed();
 
-        const codePtr = await this.writeCString(code);
-
+        const codePtr = this.writeCString(code);
         let argv = 0;
         let buffers: number[] = [];
 
         if (args.length > 0) {
-            const result = await this.writeStringArray(args);
+            const result = this.writeStringArray(args);
             argv = result.argv;
             buffers = result.buffers;
         }
 
         try {
-            const exitCode = await this.exports.zeroperl_eval(
-                codePtr,
-                mapContext("scalar"),
-                args.length,
-                argv,
-            );
-
+            const exitCode = await this.exports.zeroperl_eval(codePtr, mapContext("scalar"), args.length, argv);
             if (exitCode !== 0) {
-                const error = await this.getLastError();
-                return { success: false, error, exitCode };
+                return { success: false, error: this.getLastError(), exitCode };
             }
-
             return { success: true, exitCode: 0 };
         } catch (e) {
             if (e instanceof WASIProcExit) {
                 if (e.code !== 0) {
-                    const error = await this.getLastError();
-                    return { success: false, error, exitCode: e.code };
-                } else {
-                    return { success: true, exitCode: 0 };
+                    return { success: false, error: this.getLastError(), exitCode: e.code };
                 }
+                return { success: true, exitCode: 0 };
             }
             throw e;
         } finally {
-            await this.exports.free(codePtr);
-            if (buffers.length > 0) {
-                await this.freeStringArray(argv, buffers);
-            }
+            this.exports.free(codePtr);
+            if (buffers.length > 0) this.freeStringArray(argv, buffers);
         }
     }
 
     /**
      * Run a Perl script file.
-     * 
      * @param scriptPath Path to the script file
      * @param args Arguments to pass as @ARGV
-     * @returns Result indicating success or failure
      */
-    async runFile(
-        scriptPath: string,
-        args: string[] = [],
-    ): Promise<ZeroPerlResult> {
+    async runFile(scriptPath: string, args: string[] = []): Promise<ZeroPerlResult> {
         this.checkDisposed();
 
-        const pathPtr = await this.writeCString(scriptPath);
-
+        const pathPtr = this.writeCString(scriptPath);
         let argv = 0;
         let buffers: number[] = [];
 
         if (args.length > 0) {
-            const result = await this.writeStringArray(args);
+            const result = this.writeStringArray(args);
             argv = result.argv;
             buffers = result.buffers;
         }
 
         try {
-            const exitCode = await this.exports.zeroperl_run_file(
-                pathPtr,
-                args.length,
-                argv,
-            );
-
+            const exitCode = await this.exports.zeroperl_run_file(pathPtr, args.length, argv);
             if (exitCode !== 0) {
-                const error = await this.getLastError();
-                return { success: false, error, exitCode };
+                return { success: false, error: this.getLastError(), exitCode };
             }
-
             return { success: true, exitCode: 0 };
         } catch (e) {
             if (e instanceof WASIProcExit) {
                 if (e.code !== 0) {
-                    const error = await this.getLastError();
-                    return { success: false, error, exitCode: e.code };
-                } else {
-                    return { success: true, exitCode: 0 };
+                    return { success: false, error: this.getLastError(), exitCode: e.code };
                 }
+                return { success: true, exitCode: 0 };
             }
             throw e;
         } finally {
-            await this.exports.free(pathPtr);
-            if (buffers.length > 0) {
-                await this.freeStringArray(argv, buffers);
-            }
+            this.exports.free(pathPtr);
+            if (buffers.length > 0) this.freeStringArray(argv, buffers);
         }
     }
 
     /**
      * Reset the interpreter to a clean state.
-     * 
      * Clears all variables and errors. Registered host functions remain.
-     * 
      * @throws {ZeroPerlError} If reset fails
      */
     async reset(): Promise<void> {
         this.checkDisposed();
-
         const result = await this.exports.zeroperl_reset();
         if (result !== 0) {
-            const error = await this.getLastError();
-            throw new ZeroPerlError(
-                "Failed to reset Perl interpreter",
-                result,
-                error,
-            );
+            throw new ZeroPerlError("Failed to reset Perl interpreter", result, this.getLastError());
         }
     }
 
     /**
      * Flush STDOUT and STDERR buffers.
-     * 
      * @throws {ZeroPerlError} If flush fails
      */
-    async flush(): Promise<void> {
+    flush(): void {
         this.checkDisposed();
-
-        const result = await this.exports.zeroperl_flush();
-        if (result !== 0) {
-            throw new ZeroPerlError("Failed to flush output buffers", result);
+        if (this.exports.zeroperl_flush() !== 0) {
+            throw new ZeroPerlError("Failed to flush output buffers");
         }
     }
 
-    /**
-     * Get the last error message from Perl ($@).
-     */
-    async getLastError(): Promise<string> {
+    /** Get the last error message from Perl ($@). */
+    getLastError(): string {
         this.checkDisposed();
-
-        const errorPtr = await this.exports.zeroperl_last_error();
-        return this.readCString(errorPtr);
+        return this.readCString(this.exports.zeroperl_last_error());
     }
 
-    /**
-     * Clear the error state ($@).
-     */
-    async clearError(): Promise<void> {
+    /** Clear the error state ($@). */
+    clearError(): void {
         this.checkDisposed();
-        await this.exports.zeroperl_clear_error();
+        this.exports.zeroperl_clear_error();
     }
 
-    /**
-     * Check if the interpreter is initialized.
-     */
-    async isInitialized(): Promise<boolean> {
+    /** Check if the interpreter is initialized. */
+    isInitialized(): boolean {
         this.checkDisposed();
-        const result = await this.exports.zeroperl_is_initialized();
-        return result !== 0;
+        return this.exports.zeroperl_is_initialized() !== 0;
     }
 
-    /**
-     * Check if the interpreter is ready to evaluate code.
-     */
-    async canEvaluate(): Promise<boolean> {
+    /** Check if the interpreter is ready to evaluate code. */
+    canEvaluate(): boolean {
         this.checkDisposed();
-        const result = await this.exports.zeroperl_can_evaluate();
-        return result !== 0;
+        return this.exports.zeroperl_can_evaluate() !== 0;
     }
 
-    /**
-     * Free the Perl interpreter's memory.
-     * 
-     * After calling dispose(), this instance cannot be used.
-     */
-    async dispose(): Promise<void> {
+    /** Free the Perl interpreter's memory. After calling, this instance cannot be used. */
+    dispose(): void {
         if (this.isDisposed) return;
-
-        await this.exports.zeroperl_free_interpreter();
+        this.exports.zeroperl_free_interpreter();
         this.isDisposed = true;
         this.hostFunctions.clear();
     }
 
-    /**
-     * Shut down the Perl system.
-     * 
-     * After calling shutdown(), this instance cannot be used.
-     */
-    async shutdown(): Promise<void> {
+    /** Shut down the Perl system. After calling, this instance cannot be used. */
+    shutdown(): void {
         if (this.isDisposed) return;
-
-        await this.exports.zeroperl_shutdown();
+        this.exports.zeroperl_shutdown();
         this.isDisposed = true;
         this.hostFunctions.clear();
     }
 
-    private async writeCString(str: string): Promise<number> {
+    private writeCString(str: string): number {
+        if (!str) {
+            return 0;
+        }
         const bytes = textEncoder.encode(`${str}\0`);
-        const ptr = await this.exports.malloc(bytes.length);
-        const view = new Uint8Array(this.exports.memory.buffer);
-        view.set(bytes, ptr);
+        const ptr = this.exports.malloc(bytes.length);
+        new Uint8Array(this.exports.memory.buffer).set(bytes, ptr);
         return ptr;
     }
 
     private readCString(ptr: number): string {
         if (ptr === 0) return "";
-
         const view = new Uint8Array(this.exports.memory.buffer);
         let len = 0;
-        while (view[ptr + len] !== 0) {
-            len++;
-        }
-
+        while (view[ptr + len] !== 0) len++;
         return textDecoder.decode(view.subarray(ptr, ptr + len));
     }
 
-    private async writeStringArray(
-        args: string[],
-    ): Promise<{ argv: number; buffers: number[] }> {
+    private writeStringArray(args: string[]): { argv: number; buffers: number[] } {
         const buffers: number[] = [];
-
-        const argv = await this.exports.malloc(args.length * 4);
+        const argv = this.exports.malloc(args.length * 4);
         const argvView = new DataView(this.exports.memory.buffer);
 
         for (let i = 0; i < args.length; i++) {
             const arg = args[i];
-            if (arg === undefined) {
-                throw new ZeroPerlError(`Argument at index ${i} is undefined`);
-            }
-            const strPtr = await this.writeCString(arg);
+            if (arg === undefined) throw new ZeroPerlError(`Argument at index ${i} is undefined`);
+            const strPtr = this.writeCString(arg);
             buffers.push(strPtr);
             argvView.setUint32(argv + i * 4, strPtr, true);
         }
@@ -2096,19 +1416,12 @@ export class ZeroPerl {
         return { argv, buffers };
     }
 
-    private async freeStringArray(
-        argv: number,
-        buffers: number[],
-    ): Promise<void> {
-        for (const buf of buffers) {
-            await this.exports.free(buf);
-        }
-        await this.exports.free(argv);
+    private freeStringArray(argv: number, buffers: number[]): void {
+        for (const buf of buffers) this.exports.free(buf);
+        this.exports.free(argv);
     }
 
     private checkDisposed(): void {
-        if (this.isDisposed) {
-            throw new ZeroPerlError("ZeroPerl instance has been disposed");
-        }
+        if (this.isDisposed) throw new ZeroPerlError("ZeroPerl instance has been disposed");
     }
 }

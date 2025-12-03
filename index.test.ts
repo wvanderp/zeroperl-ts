@@ -1,92 +1,103 @@
 import { describe, expect, it } from "bun:test";
 import { MemoryFileSystem, ZeroPerl } from "./index";
 
+function expectSuccess(result: { success: boolean; error?: string; exitCode: number }) {
+	if (!result.success) {
+		throw new Error(`Perl failed (exit ${result.exitCode}): ${result.error}`);
+	}
+}
+
+function expectFailure(result: { success: boolean; error?: string; exitCode: number }) {
+	if (result.success) {
+		throw new Error(`Expected Perl to fail but it succeeded`);
+	}
+}
+
 describe("Basic Operations", () => {
 	it("should create and dispose ZeroPerl instance", async () => {
 		const perl = await ZeroPerl.create();
-		expect(await perl.isInitialized()).toBe(true);
-		expect(await perl.canEvaluate()).toBe(true);
-		await perl.dispose();
+		expect(perl.isInitialized()).toBe(true);
+		expect(perl.canEvaluate()).toBe(true);
+		perl.dispose();
 	});
 
 	it("should evaluate basic Perl code", async () => {
 		const perl = await ZeroPerl.create();
 		const result = await perl.eval("$x = 42");
-		expect(result.success).toBe(true);
+		expectSuccess(result);
 		expect(result.exitCode).toBe(0);
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle errors gracefully", async () => {
 		const perl = await ZeroPerl.create();
 		const result = await perl.eval('die "test error"');
-		expect(result.success).toBe(false);
+		expectFailure(result);
 		expect(result.error).toContain("test error");
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should get and clear last error", async () => {
 		const perl = await ZeroPerl.create();
 		await perl.eval('die "custom error"');
 
-		const error = await perl.getLastError();
+		const error = perl.getLastError();
 		expect(error).toContain("custom error");
 
-		await perl.clearError();
-		const clearedError = await perl.getLastError();
+		perl.clearError();
+		const clearedError = perl.getLastError();
 		expect(clearedError).toBe("");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should reset to clean state", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.setVariable("x", 42);
-		let value = await perl.getVariable("x");
-		expect(await value?.toInt()).toBe(42);
+		perl.setVariable("x", 42);
+		let value = perl.getVariable("x");
+		expect(value?.toInt()).toBe(42);
 
 		await perl.reset();
 
-		value = await perl.getVariable("x");
+		value = perl.getVariable("x");
 		expect(value).toBeNull();
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should flush output buffers", async () => {
 		let output = "";
 		const perl = await ZeroPerl.create({
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
 		await perl.eval('print "test"');
 		expect(output).toBe("");
 
-		await perl.flush();
+		perl.flush();
 		expect(output).toBe("test");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should shutdown completely", async () => {
 		const perl = await ZeroPerl.create();
 		await perl.eval("$x = 42");
-		await perl.shutdown();
+		perl.shutdown();
 
-		await expect(async () => {
+		expect(async () => {
 			await perl.eval("$y = 10");
 		}).toThrow();
 	});
 
 	it("should throw error when using disposed instance", async () => {
 		const perl = await ZeroPerl.create();
-		await perl.dispose();
+		perl.dispose();
 
-		await expect(async () => {
+		expect(async () => {
 			await perl.eval("$x = 1");
 		}).toThrow("ZeroPerl instance has been disposed");
 	});
@@ -95,122 +106,122 @@ describe("Basic Operations", () => {
 describe("Value Creation", () => {
 	it("should create integer values", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createInt(42);
+		const val = perl.createInt(42);
 
-		expect(await val.getType()).toBe("int");
-		expect(await val.toInt()).toBe(42);
-		expect(await val.project()).toBe(42);
+		expect(val.getType()).toBe("int");
+		expect(val.toInt()).toBe(42);
+		expect(val.project()).toBe(42);
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should create unsigned integer values", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createUInt(100);
+		const val = perl.createUInt(100);
 
-		expect(await val.toInt()).toBe(100);
+		expect(val.toInt()).toBe(100);
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should create double values", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createDouble(Math.PI);
+		const val = perl.createDouble(Math.PI);
 
-		expect(await val.getType()).toBe("double");
-		const result = await val.toDouble();
+		expect(val.getType()).toBe("double");
+		const result = val.toDouble();
 		expect(Math.abs(result - Math.PI)).toBeLessThan(0.0001);
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should create string values", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createString("hello world");
+		const val = perl.createString("hello world");
 
-		expect(await val.getType()).toBe("string");
-		expect(await val.toString()).toBe("hello world");
-		expect(await val.project()).toBe("hello world");
+		expect(val.getType()).toBe("string");
+		expect(val.toString()).toBe("hello world");
+		expect(val.project()).toBe("hello world");
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should create boolean values", async () => {
 		const perl = await ZeroPerl.create();
-		const valTrue = await perl.createBool(true);
-		const valFalse = await perl.createBool(false);
+		const valTrue = perl.createBool(true);
+		const valFalse = perl.createBool(false);
 
-		expect(await valTrue.toBoolean()).toBe(true);
-		expect(await valFalse.toBoolean()).toBe(false);
-		expect(await valTrue.project()).toBe(true);
-		expect(await valFalse.project()).toBe(false);
+		expect(valTrue.toBoolean()).toBe(true);
+		expect(valFalse.toBoolean()).toBe(false);
+		expect(valTrue.project()).toBe(true);
+		expect(valFalse.project()).toBe(false);
 
-		await valTrue.dispose();
-		await valFalse.dispose();
-		await perl.dispose();
+		valTrue.dispose();
+		valFalse.dispose();
+		perl.dispose();
 	});
 
 	it("should create undef values", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createUndef();
+		const val = perl.createUndef();
 
-		expect(await val.isUndef()).toBe(true);
-		expect(await val.project()).toBeNull();
+		expect(val.isUndef()).toBe(true);
+		expect(val.project()).toBeNull();
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should convert JavaScript primitives to Perl", async () => {
 		const perl = await ZeroPerl.create();
 
-		const num = await perl.toPerlValue(42);
-		expect(await num.toInt()).toBe(42);
+		const num = perl.toPerlValue(42);
+		expect(num.toInt()).toBe(42);
 
-		const str = await perl.toPerlValue("test");
-		expect(await str.toString()).toBe("test");
+		const str = perl.toPerlValue("test");
+		expect(str.toString()).toBe("test");
 
-		const bool = await perl.toPerlValue(true);
-		expect(await bool.toBoolean()).toBe(true);
+		const bool = perl.toPerlValue(true);
+		expect(bool.toBoolean()).toBe(true);
 
-		const undef = await perl.toPerlValue(null);
-		expect(await undef.isUndef()).toBe(true);
+		const undef = perl.toPerlValue(null);
+		expect(undef.isUndef()).toBe(true);
 
-		await num.dispose();
-		await str.dispose();
-		await bool.dispose();
-		await undef.dispose();
-		await perl.dispose();
+		num.dispose();
+		str.dispose();
+		bool.dispose();
+		undef.dispose();
+		perl.dispose();
 	});
 
 	it("should convert JavaScript arrays to Perl", async () => {
 		const perl = await ZeroPerl.create();
 
-		const arrVal = await perl.toPerlValue([1, 2, 3]);
-		expect(await arrVal.isRef()).toBe(true);
+		const arrVal = perl.toPerlValue([1, 2, 3]);
+		expect(arrVal.isRef()).toBe(true);
 
-		await arrVal.dispose();
-		await perl.dispose();
+		arrVal.dispose();
+		perl.dispose();
 	});
 
 	it("should convert JavaScript objects to Perl", async () => {
 		const perl = await ZeroPerl.create();
 
-		const objVal = await perl.toPerlValue({ a: 1, b: 2 });
-		expect(await objVal.isRef()).toBe(true);
+		const objVal = perl.toPerlValue({ a: 1, b: 2 });
+		expect(objVal.isRef()).toBe(true);
 
-		await objVal.dispose();
-		await perl.dispose();
+		objVal.dispose();
+		perl.dispose();
 	});
 
 	it("should convert nested JavaScript structures to Perl", async () => {
 		const perl = await ZeroPerl.create();
 
-		const nested = await perl.toPerlValue({
+		const nested = perl.toPerlValue({
 			name: "Alice",
 			scores: [95, 87, 92],
 			metadata: {
@@ -219,492 +230,492 @@ describe("Value Creation", () => {
 			},
 		});
 
-		expect(await nested.isRef()).toBe(true);
+		expect(nested.isRef()).toBe(true);
 
-		await nested.dispose();
-		await perl.dispose();
+		nested.dispose();
+		perl.dispose();
 	});
 });
 
 describe("PerlValue Operations", () => {
 	it("should convert values to different types", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createInt(42);
+		const val = perl.createInt(42);
 
-		expect(await val.toInt()).toBe(42);
-		expect(await val.toDouble()).toBe(42.0);
-		expect(await val.toString()).toBe("42");
-		expect(await val.toBoolean()).toBe(true);
+		expect(val.toInt()).toBe(42);
+		expect(val.toDouble()).toBe(42.0);
+		expect(val.toString()).toBe("42");
+		expect(val.toBoolean()).toBe(true);
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should check value types", async () => {
 		const perl = await ZeroPerl.create();
 
-		const intVal = await perl.createInt(42);
-		expect(await intVal.getType()).toBe("int");
+		const intVal = perl.createInt(42);
+		expect(intVal.getType()).toBe("int");
 
-		const strVal = await perl.createString("hello");
-		expect(await strVal.getType()).toBe("string");
+		const strVal = perl.createString("hello");
+		expect(strVal.getType()).toBe("string");
 
-		const undefVal = await perl.createUndef();
-		expect(await undefVal.isUndef()).toBe(true);
+		const undefVal = perl.createUndef();
+		expect(undefVal.isUndef()).toBe(true);
 
-		await intVal.dispose();
-		await strVal.dispose();
-		await undefVal.dispose();
-		await perl.dispose();
+		intVal.dispose();
+		strVal.dispose();
+		undefVal.dispose();
+		perl.dispose();
 	});
 
 	it("should create and dereference references", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createInt(42);
+		const val = perl.createInt(42);
 
-		const ref = await val.createRef();
-		expect(await ref.isRef()).toBe(true);
+		const ref = val.createRef();
+		expect(ref.isRef()).toBe(true);
 
-		const deref = await ref.deref();
-		expect(await deref.toInt()).toBe(42);
+		const deref = ref.deref();
+		expect(deref.toInt()).toBe(42);
 
-		await val.dispose();
-		await ref.dispose();
-		await deref.dispose();
-		await perl.dispose();
+		val.dispose();
+		ref.dispose();
+		deref.dispose();
+		perl.dispose();
 	});
 
 	it("should handle reference counting", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createInt(42);
+		const val = perl.createInt(42);
 
-		await val.incref();
-		await val.decref();
+		val.incref();
+		val.decref();
 
-		expect(await val.toInt()).toBe(42);
+		expect(val.toInt()).toBe(42);
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should convert to JavaScript primitives via project()", async () => {
 		const perl = await ZeroPerl.create();
 
-		const num = await perl.createInt(42);
-		expect(await num.project()).toBe(42);
+		const num = perl.createInt(42);
+		expect(num.project()).toBe(42);
 
-		const str = await perl.createString("hello");
-		expect(await str.project()).toBe("hello");
+		const str = perl.createString("hello");
+		expect(str.project()).toBe("hello");
 
-		const undef = await perl.createUndef();
-		expect(await undef.project()).toBeNull();
+		const undef = perl.createUndef();
+		expect(undef.project()).toBeNull();
 
-		const boolTrue = await perl.createBool(true);
-		expect(await boolTrue.project()).toBe(true);
+		const boolTrue = perl.createBool(true);
+		expect(boolTrue.project()).toBe(true);
 
-		const boolFalse = await perl.createBool(false);
-		expect(await boolFalse.project()).toBe(false);
+		const boolFalse = perl.createBool(false);
+		expect(boolFalse.project()).toBe(false);
 
-		await num.dispose();
-		await str.dispose();
-		await undef.dispose();
-		await boolTrue.dispose();
-		await boolFalse.dispose();
-		await perl.dispose();
+		num.dispose();
+		str.dispose();
+		undef.dispose();
+		boolTrue.dispose();
+		boolFalse.dispose();
+		perl.dispose();
 	});
 
 	it("should throw error when using disposed PerlValue", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createInt(42);
-		await val.dispose();
+		const val = perl.createInt(42);
+		val.dispose();
 
-		await expect(async () => {
-			await val.toInt();
+		expect(() => {
+			val.toInt();
 		}).toThrow("PerlValue has been disposed");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
 describe("Arrays", () => {
 	it("should create empty arrays", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
+		const arr = perl.createArray();
 
-		expect(await arr.getLength()).toBe(0);
+		expect(arr.getLength()).toBe(0);
 
-		await arr.dispose();
-		await perl.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should create arrays from JavaScript arrays", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray([1, 2, 3, "hello", true, null]);
+		const arr = perl.createArray([1, 2, 3, "hello", true, null]);
 
-		expect(await arr.getLength()).toBe(6);
+		expect(arr.getLength()).toBe(6);
 
-		const val0 = await arr.get(0);
-		expect(await val0?.toInt()).toBe(1);
+		const val0 = arr.get(0);
+		expect(val0?.toInt()).toBe(1);
 
-		const val3 = await arr.get(3);
-		expect(await val3?.toString()).toBe("hello");
+		const val3 = arr.get(3);
+		expect(val3?.toString()).toBe("hello");
 
-		const val4 = await arr.get(4);
-		expect(await val4?.toBoolean()).toBe(true);
+		const val4 = arr.get(4);
+		expect(val4?.toBoolean()).toBe(true);
 
-		const val5 = await arr.get(5);
-		expect(await val5?.isUndef()).toBe(true);
+		const val5 = arr.get(5);
+		expect(val5?.isUndef()).toBe(true);
 
-		await val0?.dispose();
-		await val3?.dispose();
-		await val4?.dispose();
-		await val5?.dispose();
-		await arr.dispose();
-		await perl.dispose();
+		val0?.dispose();
+		val3?.dispose();
+		val4?.dispose();
+		val5?.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should push and pop values", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
+		const arr = perl.createArray();
 
-		await arr.push(42);
-		await arr.push("hello");
-		await arr.push(true);
+		arr.push(42);
+		arr.push("hello");
+		arr.push(true);
 
-		expect(await arr.getLength()).toBe(3);
+		expect(arr.getLength()).toBe(3);
 
-		const val = await arr.pop();
-		expect(await val?.toBoolean()).toBe(true);
+		const val = arr.pop();
+		expect(val?.toBoolean()).toBe(true);
 
-		expect(await arr.getLength()).toBe(2);
+		expect(arr.getLength()).toBe(2);
 
-		await val?.dispose();
-		await arr.dispose();
-		await perl.dispose();
+		val?.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should get and set values by index", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
+		const arr = perl.createArray();
 
-		await arr.push(1);
-		await arr.push(2);
-		await arr.push(3);
+		arr.push(1);
+		arr.push(2);
+		arr.push(3);
 
-		const val = await arr.get(1);
-		expect(await val?.toInt()).toBe(2);
+		const val = arr.get(1);
+		expect(val?.toInt()).toBe(2);
 
-		await arr.set(1, 99);
-		const newVal = await arr.get(1);
-		expect(await newVal?.toInt()).toBe(99);
+		arr.set(1, 99);
+		const newVal = arr.get(1);
+		expect(newVal?.toInt()).toBe(99);
 
-		await val?.dispose();
-		await newVal?.dispose();
-		await arr.dispose();
-		await perl.dispose();
+		val?.dispose();
+		newVal?.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should clear arrays", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
+		const arr = perl.createArray();
 
-		await arr.push(1);
-		await arr.push(2);
-		await arr.push(3);
+		arr.push(1);
+		arr.push(2);
+		arr.push(3);
 
-		expect(await arr.getLength()).toBe(3);
+		expect(arr.getLength()).toBe(3);
 
-		await arr.clear();
-		expect(await arr.getLength()).toBe(0);
+		arr.clear();
+		expect(arr.getLength()).toBe(0);
 
-		await arr.dispose();
-		await perl.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should iterate over array values", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
+		const arr = perl.createArray();
 
-		await arr.push(1);
-		await arr.push(2);
-		await arr.push(3);
+		arr.push(1);
+		arr.push(2);
+		arr.push(3);
 
 		const values: number[] = [];
-		for await (const val of arr) {
-			values.push(await val.toInt());
-			await val.dispose();
+		for (const val of arr) {
+			values.push(val.toInt());
+			val.dispose();
 		}
 
 		expect(values).toEqual([1, 2, 3]);
 
-		await arr.dispose();
-		await perl.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should convert array to PerlValue", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
+		const arr = perl.createArray();
 
-		await arr.push(1);
-		await arr.push(2);
+		arr.push(1);
+		arr.push(2);
 
-		const val = await arr.toValue();
-		expect(await val.isRef()).toBe(true);
+		const val = arr.toValue();
+		expect(val.isRef()).toBe(true);
 
-		await val.dispose();
-		await arr.dispose();
-		await perl.dispose();
+		val.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should convert array to JavaScript array via project()", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
+		const arr = perl.createArray();
 
-		await arr.push(42);
-		await arr.push("hello");
-		await arr.push(true);
+		arr.push(42);
+		arr.push("hello");
+		arr.push(true);
 
-		const jsArr = await arr.project();
+		const jsArr = arr.project();
 		expect(jsArr).toEqual([42, "hello", true]);
 
-		await arr.dispose();
-		await perl.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should round-trip JavaScript arrays", async () => {
 		const perl = await ZeroPerl.create();
 		const original = [1, 2, 3, "test", true, null];
 
-		const arr = await perl.createArray(original);
-		const result = await arr.project();
+		const arr = perl.createArray(original);
+		const result = arr.project();
 
 		expect(result).toEqual(original);
 
-		await arr.dispose();
-		await perl.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should handle nested arrays", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray([1, [2, 3], [4, [5, 6]]]);
+		const arr = perl.createArray([1, [2, 3], [4, [5, 6]]]);
 
-		expect(await arr.getLength()).toBe(3);
+		expect(arr.getLength()).toBe(3);
 
-		const val0 = await arr.get(0);
-		expect(await val0?.toInt()).toBe(1);
+		const val0 = arr.get(0);
+		expect(val0?.toInt()).toBe(1);
 
-		const val1 = await arr.get(1);
-		expect(await val1?.isRef()).toBe(true);
+		const val1 = arr.get(1);
+		expect(val1?.isRef()).toBe(true);
 
-		await val0?.dispose();
-		await val1?.dispose();
-		await arr.dispose();
-		await perl.dispose();
+		val0?.dispose();
+		val1?.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should throw error when using disposed PerlArray", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray();
-		await arr.dispose();
+		const arr = perl.createArray();
+		arr.dispose();
 
-		await expect(async () => {
-			await arr.getLength();
+		expect(() => {
+			arr.getLength();
 		}).toThrow("PerlArray has been disposed");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
 describe("Hashes", () => {
 	it("should create empty hashes", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		expect(await hash.has("key")).toBe(false);
+		expect(hash.has("key")).toBe(false);
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should create hashes from JavaScript objects", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash({
+		const hash = perl.createHash({
 			name: "Alice",
 			age: 30,
 			active: true,
 			score: 95.5,
 		});
 
-		const name = await hash.get("name");
-		expect(await name?.toString()).toBe("Alice");
+		const name = hash.get("name");
+		expect(name?.toString()).toBe("Alice");
 
-		const age = await hash.get("age");
-		expect(await age?.toInt()).toBe(30);
+		const age = hash.get("age");
+		expect(age?.toInt()).toBe(30);
 
-		const active = await hash.get("active");
-		expect(await active?.toBoolean()).toBe(true);
+		const active = hash.get("active");
+		expect(active?.toBoolean()).toBe(true);
 
-		await name?.dispose();
-		await age?.dispose();
-		await active?.dispose();
-		await hash.dispose();
-		await perl.dispose();
+		name?.dispose();
+		age?.dispose();
+		active?.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should set and get values", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("name", "Alice");
-		await hash.set("age", 30);
+		hash.set("name", "Alice");
+		hash.set("age", 30);
 
-		const name = await hash.get("name");
-		expect(await name?.toString()).toBe("Alice");
+		const name = hash.get("name");
+		expect(name?.toString()).toBe("Alice");
 
-		const age = await hash.get("age");
-		expect(await age?.toInt()).toBe(30);
+		const age = hash.get("age");
+		expect(age?.toInt()).toBe(30);
 
-		await name?.dispose();
-		await age?.dispose();
-		await hash.dispose();
-		await perl.dispose();
+		name?.dispose();
+		age?.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should check if keys exist", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("key1", "value1");
+		hash.set("key1", "value1");
 
-		expect(await hash.has("key1")).toBe(true);
-		expect(await hash.has("key2")).toBe(false);
+		expect(hash.has("key1")).toBe(true);
+		expect(hash.has("key2")).toBe(false);
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should delete keys", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("key", "value");
-		expect(await hash.has("key")).toBe(true);
+		hash.set("key", "value");
+		expect(hash.has("key")).toBe(true);
 
-		const deleted = await hash.delete("key");
+		const deleted = hash.delete("key");
 		expect(deleted).toBe(true);
-		expect(await hash.has("key")).toBe(false);
+		expect(hash.has("key")).toBe(false);
 
-		const notDeleted = await hash.delete("nonexistent");
+		const notDeleted = hash.delete("nonexistent");
 		expect(notDeleted).toBe(false);
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should clear hashes", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("key1", "value1");
-		await hash.set("key2", "value2");
+		hash.set("key1", "value1");
+		hash.set("key2", "value2");
 
-		await hash.clear();
+		hash.clear();
 
-		expect(await hash.has("key1")).toBe(false);
-		expect(await hash.has("key2")).toBe(false);
+		expect(hash.has("key1")).toBe(false);
+		expect(hash.has("key2")).toBe(false);
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should iterate over entries", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("a", 1);
-		await hash.set("b", 2);
-		await hash.set("c", 3);
+		hash.set("a", 1);
+		hash.set("b", 2);
+		hash.set("c", 3);
 
 		const entries: Record<string, number> = {};
-		for await (const [key, val] of hash.entries()) {
-			entries[key] = await val.toInt();
-			await val.dispose();
+		for (const [key, val] of hash.entries()) {
+			entries[key] = val.toInt();
+			val.dispose();
 		}
 
 		expect(entries).toEqual({ a: 1, b: 2, c: 3 });
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should iterate over keys", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("key1", "value1");
-		await hash.set("key2", "value2");
+		hash.set("key1", "value1");
+		hash.set("key2", "value2");
 
 		const keys: string[] = [];
-		for await (const key of hash.keys()) {
+		for (const key of hash.keys()) {
 			keys.push(key);
 		}
 
 		expect(keys.sort()).toEqual(["key1", "key2"]);
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should iterate over values", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("a", 1);
-		await hash.set("b", 2);
+		hash.set("a", 1);
+		hash.set("b", 2);
 
 		const values: number[] = [];
-		for await (const val of hash.values()) {
-			values.push(await val.toInt());
-			await val.dispose();
+		for (const val of hash.values()) {
+			values.push(val.toInt());
+			val.dispose();
 		}
 
 		expect(values.sort()).toEqual([1, 2]);
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should convert hash to PerlValue", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("key", "value");
+		hash.set("key", "value");
 
-		const val = await hash.toValue();
-		expect(await val.isRef()).toBe(true);
+		const val = hash.toValue();
+		expect(val.isRef()).toBe(true);
 
-		await val.dispose();
-		await hash.dispose();
-		await perl.dispose();
+		val.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should convert hash to JavaScript object via project()", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
+		const hash = perl.createHash();
 
-		await hash.set("name", "Bob");
-		await hash.set("age", 25);
-		await hash.set("active", true);
+		hash.set("name", "Bob");
+		hash.set("age", 25);
+		hash.set("active", true);
 
-		const obj = await hash.project();
+		const obj = hash.project();
 		expect(obj).toEqual({
 			name: "Bob",
 			age: 25,
 			active: true,
 		});
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should round-trip JavaScript objects", async () => {
@@ -716,18 +727,18 @@ describe("Hashes", () => {
 			nil: null,
 		};
 
-		const hash = await perl.createHash(original);
-		const result = await hash.project();
+		const hash = perl.createHash(original);
+		const result = hash.project();
 
 		expect(result).toEqual(original);
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should handle nested objects", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash({
+		const hash = perl.createHash({
 			name: "Alice",
 			data: {
 				age: 30,
@@ -735,28 +746,28 @@ describe("Hashes", () => {
 			},
 		});
 
-		const name = await hash.get("name");
-		expect(await name?.toString()).toBe("Alice");
+		const name = hash.get("name");
+		expect(name?.toString()).toBe("Alice");
 
-		const data = await hash.get("data");
-		expect(await data?.isRef()).toBe(true);
+		const data = hash.get("data");
+		expect(data?.isRef()).toBe(true);
 
-		await name?.dispose();
-		await data?.dispose();
-		await hash.dispose();
-		await perl.dispose();
+		name?.dispose();
+		data?.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should throw error when using disposed PerlHash", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash();
-		await hash.dispose();
+		const hash = perl.createHash();
+		hash.dispose();
 
-		await expect(async () => {
-			await hash.has("key");
+		expect(() => {
+			hash.has("key");
 		}).toThrow("PerlHash has been disposed");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
@@ -764,113 +775,115 @@ describe("Variables", () => {
 	it("should set and get scalar variables with primitives", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.setVariable("name", "Alice");
-		await perl.setVariable("age", 30);
-		await perl.setVariable("active", true);
+		perl.setVariable("name", "Alice");
+		perl.setVariable("age", 30);
+		perl.setVariable("active", true);
 
-		const name = await perl.getVariable("name");
-		expect(await name?.toString()).toBe("Alice");
+		const name = perl.getVariable("name");
+		expect(name?.toString()).toBe("Alice");
 
-		const age = await perl.getVariable("age");
-		expect(await age?.toInt()).toBe(30);
+		const age = perl.getVariable("age");
+		expect(age?.toInt()).toBe(30);
 
-		const active = await perl.getVariable("active");
-		expect(await active?.toBoolean()).toBe(true);
+		const active = perl.getVariable("active");
+		expect(active?.toBoolean()).toBe(true);
 
-		await name?.dispose();
-		await age?.dispose();
-		await active?.dispose();
-		await perl.dispose();
+		name?.dispose();
+		age?.dispose();
+		active?.dispose();
+		perl.dispose();
 	});
 
 	it("should set variables with PerlValue", async () => {
 		const perl = await ZeroPerl.create();
 
-		const val = await perl.createString("test");
-		await perl.setVariable("myvar", val);
+		const val = perl.createString("test");
+		perl.setVariable("myvar", val);
 
-		const retrieved = await perl.getVariable("myvar");
-		expect(await retrieved?.toString()).toBe("test");
+		const retrieved = perl.getVariable("myvar");
+		expect(retrieved?.toString()).toBe("test");
 
-		await val.dispose();
-		await retrieved?.dispose();
-		await perl.dispose();
+		val.dispose();
+		retrieved?.dispose();
+		perl.dispose();
 	});
 
 	it("should set variables with arrays", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.setVariable("numbers", [1, 2, 3, 4, 5]);
+		perl.setVariable("numbers", [1, 2, 3, 4, 5]);
 
-		const val = await perl.getVariable("numbers");
-		expect(await val?.isRef()).toBe(true);
+		const val = perl.getVariable("numbers");
+		expect(val?.isRef()).toBe(true);
 
-		await val?.dispose();
-		await perl.dispose();
+		val?.dispose();
+		perl.dispose();
 	});
 
 	it("should set variables with objects", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.setVariable("user", {
+		perl.setVariable("user", {
 			name: "Alice",
 			age: 30,
 		});
 
-		const val = await perl.getVariable("user");
-		expect(await val?.isRef()).toBe(true);
+		const val = perl.getVariable("user");
+		expect(val?.isRef()).toBe(true);
 
-		await val?.dispose();
-		await perl.dispose();
+		val?.dispose();
+		perl.dispose();
 	});
 
 	it("should return null for non-existent variables", async () => {
 		const perl = await ZeroPerl.create();
 
-		const value = await perl.getVariable("nonexistent");
+		const value = perl.getVariable("nonexistent");
 		expect(value).toBeNull();
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should get and set array variables", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval("@myarray = (1, 2, 3)");
+		const result = await perl.eval("@myarray = (1, 2, 3)");
+		expectSuccess(result);
 
-		const arr = await perl.getArrayVariable("myarray");
-		expect(await arr?.getLength()).toBe(3);
+		const arr = perl.getArrayVariable("myarray");
+		expect(arr?.getLength()).toBe(3);
 
-		await arr?.dispose();
-		await perl.dispose();
+		arr?.dispose();
+		perl.dispose();
 	});
 
 	it("should get and set hash variables", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval("%myhash = (a => 1, b => 2)");
+		const result = await perl.eval("%myhash = (a => 1, b => 2)");
+		expectSuccess(result);
 
-		const hash = await perl.getHashVariable("myhash");
-		expect(await hash?.has("a")).toBe(true);
-		expect(await hash?.has("b")).toBe(true);
+		const hash = perl.getHashVariable("myhash");
+		expect(hash?.has("a")).toBe(true);
+		expect(hash?.has("b")).toBe(true);
 
-		await hash?.dispose();
-		await perl.dispose();
+		hash?.dispose();
+		perl.dispose();
 	});
 
 	it("should overwrite existing variables", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.setVariable("var", "first");
-		let val = await perl.getVariable("var");
-		expect(await val?.toString()).toBe("first");
+		perl.setVariable("var", "first");
+		let val = perl.getVariable("var");
+		expect(val?.toString()).toBe("first");
 
-		await perl.setVariable("var", "second");
-		val = await perl.getVariable("var");
-		expect(await val?.toString()).toBe("second");
+		perl.setVariable("var", "second");
+		val = perl.getVariable("var");
+		expect(val?.toString()).toBe("second");
 
-		await val?.dispose();
-		await perl.dispose();
+		val?.dispose();
+		perl.dispose();
 	});
 });
 
@@ -882,186 +895,193 @@ describe("Host Functions", () => {
 				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.registerFunction("double", async (x) => {
-			const num = await x.toInt();
-			return await perl.createInt(num * 2);
+		perl.registerFunction("double", (x) => {
+			const num = x.toInt();
+			return perl.createInt(num * 2);
 		});
 
-		await perl.eval("print double(21)");
-		await perl.flush();
+		const result = await perl.eval("print double(21)");
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("42");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should register host methods", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.registerMethod("Math", "square", async (x) => {
-			const num = await x.toInt();
-			return await perl.createInt(num * num);
+		perl.registerMethod("Math", "square", (x) => {
+			const num = x.toInt();
+			return perl.createInt(num * num);
 		});
 
-		await perl.eval("$result = Math::square(7)");
-		const result = await perl.getVariable("result");
-		expect(await result?.toInt()).toBe(49);
+		const result = await perl.eval("$result = Math::square(7)");
+		expectSuccess(result);
 
-		await result?.dispose();
-		await perl.dispose();
+		const perlResult = perl.getVariable("result");
+		expect(perlResult?.toInt()).toBe(49);
+
+		perlResult?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle async host functions", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.registerFunction("async_func", async (x) => {
+		perl.registerFunction("async_func", async (x) => {
 			await new Promise((resolve) => setTimeout(resolve, 10));
-			const num = await x.toInt();
-			return await perl.createInt(num + 1);
+			const num = x.toInt();
+			return perl.createInt(num + 1);
 		});
 
-		await perl.eval("$result = async_func(41)");
-		const result = await perl.getVariable("result");
-		expect(await result?.toInt()).toBe(42);
+		const result = await perl.eval("$result = async_func(41)");
+		expectSuccess(result);
 
-		await result?.dispose();
-		await perl.dispose();
+		const perlResult = perl.getVariable("result");
+		expect(perlResult?.toInt()).toBe(42);
+
+		perlResult?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle host functions with multiple arguments", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.registerFunction("add", async (a, b) => {
-			const x = await a.toInt();
-			const y = await b.toInt();
-			return await perl.createInt(x + y);
+		perl.registerFunction("add", (a, b) => {
+			const x = a.toInt();
+			const y = b.toInt();
+			return perl.createInt(x + y);
 		});
 
-		await perl.eval("$sum = add(10, 32)");
-		const sum = await perl.getVariable("sum");
-		expect(await sum?.toInt()).toBe(42);
+		const result = await perl.eval("$sum = add(10, 32)");
+		expectSuccess(result);
 
-		await sum?.dispose();
-		await perl.dispose();
+		const sum = perl.getVariable("sum");
+		expect(sum?.toInt()).toBe(42);
+
+		sum?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle host functions returning different types", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.registerFunction("get_string", async () => {
-			return await perl.createString("hello");
+		perl.registerFunction("get_string", () => {
+			return perl.createString("hello");
 		});
 
-		await perl.registerFunction("get_array", async () => {
-			const arr = await perl.createArray();
-			await arr.push(1);
-			await arr.push(2);
-			return await arr.toValue();
+		perl.registerFunction("get_array", () => {
+			const arr = perl.createArray();
+			arr.push(1);
+			arr.push(2);
+			return arr.toValue();
 		});
 
-		await perl.eval("$str = get_string()");
-		const str = await perl.getVariable("str");
-		expect(await str?.toString()).toBe("hello");
+		const result = await perl.eval("$str = get_string()");
+		expectSuccess(result);
 
-		await str?.dispose();
-		await perl.dispose();
+		const str = perl.getVariable("str");
+		expect(str?.toString()).toBe("hello");
+
+		str?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle void host functions", async () => {
 		const perl = await ZeroPerl.create();
 		let called = false;
 
-		await perl.registerFunction("set_flag", async () => {
+		perl.registerFunction("set_flag", () => {
 			called = true;
 		});
 
-		await perl.eval("set_flag()");
+		const result = await perl.eval("set_flag()");
+		expectSuccess(result);
 		expect(called).toBe(true);
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle host function errors", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.registerFunction("divide", async (a, b) => {
-			const x = await a.toInt();
-			const y = await b.toInt();
+		perl.registerFunction("divide", (a, b) => {
+			const x = a.toInt();
+			const y = b.toInt();
 			if (y === 0) {
 				throw new Error("Division by zero");
 			}
-			return await perl.createInt(x / y);
+			return perl.createInt(x / y);
 		});
 
 		const result = await perl.eval(`
-        eval { $result = divide(10, 0) };
-        $error = $@;
-    `);
+			eval { $result = divide(10, 0) };
+			$error = $@;
+		`);
+		expectSuccess(result);
 
-		expect(result.success).toBe(true);
+		const error = perl.getVariable("error");
+		expect(error?.toString()).toContain("Division by zero");
 
-		const error = await perl.getVariable("error");
-		expect(await error?.toString()).toContain("Division by zero");
-
-		await error?.dispose();
-		await perl.dispose();
+		error?.dispose();
+		perl.dispose();
 	});
 
 	it("should propagate host function errors", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.registerFunction("fail", async () => {
+		perl.registerFunction("fail", () => {
 			throw new Error("Host function failed");
 		});
 
 		const result = await perl.eval("$x = fail()");
-
-		expect(result.success).toBe(false);
+		expectFailure(result);
 		expect(result.error).toContain("Host function failed");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle host function errors with custom messages", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.registerFunction("validate", async (x) => {
-			const num = await x.toInt();
+		perl.registerFunction("validate", (x) => {
+			const num = x.toInt();
 			if (num < 0) {
 				throw new Error("Value must be positive");
 			}
 			if (num > 100) {
 				throw new Error("Value must be less than 100");
 			}
-			return await perl.createInt(num);
+			return perl.createInt(num);
 		});
 
 		let result = await perl.eval(`
-        eval { $result = validate(-5) };
-        $error1 = $@;
-    `);
-		expect(result.success).toBe(true);
+			eval { $result = validate(-5) };
+			$error1 = $@;
+		`);
+		expectSuccess(result);
 
-		let error = await perl.getVariable("error1");
-		expect(await error?.toString()).toContain("Value must be positive");
-		await error?.dispose();
+		let error = perl.getVariable("error1");
+		expect(error?.toString()).toContain("Value must be positive");
+		error?.dispose();
 
 		result = await perl.eval(`
-        eval { $result = validate(150) };
-        $error2 = $@;
-    `);
-		expect(result.success).toBe(true);
+			eval { $result = validate(150) };
+			$error2 = $@;
+		`);
+		expectSuccess(result);
 
-		error = await perl.getVariable("error2");
-		expect(await error?.toString()).toContain("Value must be less than 100");
-		await error?.dispose();
+		error = perl.getVariable("error2");
+		expect(error?.toString()).toContain("Value must be less than 100");
+		error?.dispose();
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
@@ -1069,105 +1089,115 @@ describe("Calling Perl from JavaScript", () => {
 	it("should call Perl subroutines in scalar context", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval('sub greet { my ($name) = @_; return "Hello, $name!"; }');
+		const result = await perl.eval('sub greet { my ($name) = @_; return "Hello, $name!"; }');
+		expectSuccess(result);
 
-		const arg = await perl.createString("Alice");
-		const result = await perl.call("greet", [arg], "scalar");
+		const arg = perl.createString("Alice");
+		const callResult = await perl.call("greet", [arg], "scalar");
 
-		expect(await result?.toString()).toBe("Hello, Alice!");
+		expect(callResult?.toString()).toBe("Hello, Alice!");
 
-		await arg.dispose();
-		await result?.dispose();
-		await perl.dispose();
+		arg.dispose();
+		callResult?.dispose();
+		perl.dispose();
 	});
 
 	it("should call Perl subroutines with default scalar context", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval('sub greet { my ($name) = @_; return "Hello, $name!"; }');
+		const result = await perl.eval('sub greet { my ($name) = @_; return "Hello, $name!"; }');
+		expectSuccess(result);
 
-		const arg = await perl.createString("Alice");
-		const result = await perl.call("greet", [arg]);
+		const arg = perl.createString("Alice");
+		const callResult = await perl.call("greet", [arg]);
 
-		expect(await result?.toString()).toBe("Hello, Alice!");
+		expect(callResult?.toString()).toBe("Hello, Alice!");
 
-		await arg.dispose();
-		await result?.dispose();
-		await perl.dispose();
+		arg.dispose();
+		callResult?.dispose();
+		perl.dispose();
 	});
 
 	it("should call Perl subroutines with multiple arguments", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval("sub add { my ($a, $b) = @_; return $a + $b; }");
+		const result = await perl.eval("sub add { my ($a, $b) = @_; return $a + $b; }");
+		expectSuccess(result);
 
-		const arg1 = await perl.createInt(10);
-		const arg2 = await perl.createInt(32);
-		const result = await perl.call("add", [arg1, arg2], "scalar");
+		const arg1 = perl.createInt(10);
+		const arg2 = perl.createInt(32);
+		const callResult = await perl.call("add", [arg1, arg2], "scalar");
 
-		expect(await result?.toInt()).toBe(42);
+		expect(callResult?.toInt()).toBe(42);
 
-		await arg1.dispose();
-		await arg2.dispose();
-		await result?.dispose();
-		await perl.dispose();
+		arg1.dispose();
+		arg2.dispose();
+		callResult?.dispose();
+		perl.dispose();
 	});
 
 	it("should call Perl subroutines in list context", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval("sub get_values { return (1, 2, 3); }");
+		const result = await perl.eval("sub get_values { return (1, 2, 3); }");
+		expectSuccess(result);
 
 		const results = await perl.call("get_values", [], "list");
 
 		expect(results.length).toBe(3);
-		expect(await results[0].toInt()).toBe(1);
-		expect(await results[1].toInt()).toBe(2);
-		expect(await results[2].toInt()).toBe(3);
+		expect(results[0].toInt()).toBe(1);
+		expect(results[1].toInt()).toBe(2);
+		expect(results[2].toInt()).toBe(3);
 
 		for (const r of results) {
-			await r.dispose();
+			r.dispose();
 		}
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should call Perl subroutines in void context", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval("sub set_global { $::global = 42; }");
+		const result = await perl.eval("sub set_global { $::global = 42; }");
+		expectSuccess(result);
 
-		const result = await perl.call("set_global", [], "void");
+		const callResult = await perl.call("set_global", [], "void");
 
-		expect(result).toBeUndefined();
+		expect(callResult).toBeUndefined();
 
-		const global = await perl.getVariable("global");
-		expect(await global?.toInt()).toBe(42);
+		const global = perl.getVariable("global");
+		expect(global?.toInt()).toBe(42);
 
-		await global?.dispose();
-		await perl.dispose();
+		global?.dispose();
+		perl.dispose();
 	});
 
 	it("should call Perl subroutines without arguments", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval("sub get_pi { return 3.14159; }");
+		const result = await perl.eval("sub get_pi { return 3.14159; }");
+		expectSuccess(result);
 
-		const result = await perl.call("get_pi");
+		const callResult = await perl.call("get_pi");
 
-		expect(await result?.toDouble()).toBeCloseTo(Math.PI, 5);
+		expect(callResult?.toDouble()).toBeCloseTo(Math.PI, 5);
 
-		await result?.dispose();
-		await perl.dispose();
+		callResult?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle Perl subroutine errors", async () => {
 		const perl = await ZeroPerl.create();
-		await perl.eval('sub fail_sub { die "Subroutine failed"; }');
-		const result = await perl.call("fail_sub");
-		expect(result).toBeNull();
-		const error = await perl.getLastError();
+		const result = await perl.eval('sub fail_sub { die "Subroutine failed"; }');
+		expectSuccess(result);
+
+		const callResult = await perl.call("fail_sub");
+		expect(callResult).toBeNull();
+
+		const error = perl.getLastError();
 		expect(error).toContain("Subroutine failed");
-		await perl.dispose();
+
+		perl.dispose();
 	});
 });
 
@@ -1180,19 +1210,17 @@ describe("File System", () => {
 		const perl = await ZeroPerl.create({
 			fileSystem: fs,
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
 		const result = await perl.runFile("/test.pl");
-		await perl.flush();
-		console.log(result);
+		expectSuccess(result);
+		perl.flush();
 
-		expect(result.success).toBe(true);
 		expect(output).toBe("Hello from file!");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should run script files with arguments", async () => {
@@ -1203,17 +1231,17 @@ describe("File System", () => {
 		const perl = await ZeroPerl.create({
 			fileSystem: fs,
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.runFile("/script.pl", ["one", "two"]);
-		await perl.flush();
+		const result = await perl.runFile("/script.pl", ["one", "two"]);
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("Args: one two");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should read data files", async () => {
@@ -1224,22 +1252,22 @@ describe("File System", () => {
 		const perl = await ZeroPerl.create({
 			fileSystem: fs,
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.eval(`
-            open my $fh, '<', '/data.txt' or die $!;
-            my $content = <$fh>;
-            print $content;
-            close $fh;
-        `);
-		await perl.flush();
+		const result = await perl.eval(`
+			open my $fh, '<', '/data.txt' or die $!;
+			my $content = <$fh>;
+			print $content;
+			close $fh;
+		`);
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("Hello from file system!");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle file not found errors", async () => {
@@ -1247,10 +1275,10 @@ describe("File System", () => {
 		const perl = await ZeroPerl.create({ fileSystem: fs });
 
 		const result = await perl.runFile("/nonexistent.pl");
-		expect(result.success).toBe(false);
+		expectFailure(result);
 		expect(result.error).toContain("No such file or directory");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle File and Blob objects", async () => {
@@ -1266,25 +1294,25 @@ describe("File System", () => {
 		const perl = await ZeroPerl.create({
 			fileSystem: fs,
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.eval(`
-            open my $fh, '<', '/file.txt';
-            print <$fh>;
-            close $fh;
-            print " ";
-            open $fh, '<', '/blob.txt';
-            print <$fh>;
-            close $fh;
-        `);
-		await perl.flush();
+		const result = await perl.eval(`
+			open my $fh, '<', '/file.txt';
+			print <$fh>;
+			close $fh;
+			print " ";
+			open $fh, '<', '/blob.txt';
+			print <$fh>;
+			close $fh;
+		`);
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("File content Blob content");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
@@ -1293,17 +1321,17 @@ describe("Output Handling", () => {
 		let output = "";
 		const perl = await ZeroPerl.create({
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.eval('print "hello"');
-		await perl.flush();
+		const result = await perl.eval('print "hello"');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("hello");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should capture stderr separately", async () => {
@@ -1312,41 +1340,42 @@ describe("Output Handling", () => {
 
 		const perl = await ZeroPerl.create({
 			stdout: (data) => {
-				stdout +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				stdout += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 			stderr: (data) => {
-				stderr +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				stderr += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.eval('print "to stdout"; warn "to stderr"');
-		await perl.flush();
+		const result = await perl.eval('print "to stdout"; warn "to stderr"');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(stdout).toBe("to stdout");
 		expect(stderr).toContain("to stderr");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle multiple eval calls with output", async () => {
 		let output = "";
 		const perl = await ZeroPerl.create({
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.eval('print "first "');
-		await perl.flush();
-		await perl.eval('print "second"');
-		await perl.flush();
+		let result = await perl.eval('print "first "');
+		expectSuccess(result);
+		perl.flush();
+
+		result = await perl.eval('print "second"');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("first second");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle binary data output", async () => {
@@ -1363,12 +1392,13 @@ describe("Output Handling", () => {
 			},
 		});
 
-		await perl.eval('print "test"');
-		await perl.flush();
+		const result = await perl.eval('print "test"');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(new TextDecoder().decode(output)).toBe("test");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
@@ -1378,17 +1408,17 @@ describe("Environment", () => {
 		const perl = await ZeroPerl.create({
 			env: { MY_VAR: "test_value", ANOTHER: "value2" },
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.eval('print $ENV{MY_VAR} . " " . $ENV{ANOTHER}');
-		await perl.flush();
+		const result = await perl.eval('print $ENV{MY_VAR} . " " . $ENV{ANOTHER}');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("test_value value2");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle missing environment variables", async () => {
@@ -1396,17 +1426,17 @@ describe("Environment", () => {
 		const perl = await ZeroPerl.create({
 			env: {},
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.eval('print defined($ENV{NONEXISTENT}) ? "defined" : "undefined"');
-		await perl.flush();
+		const result = await perl.eval('print defined($ENV{NONEXISTENT}) ? "defined" : "undefined"');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("undefined");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
@@ -1414,7 +1444,7 @@ describe("Complex Scenarios", () => {
 	it("should handle complex nested data structures", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.setVariable("config", {
+		perl.setVariable("config", {
 			server: {
 				host: "localhost",
 				port: 8080,
@@ -1427,100 +1457,108 @@ describe("Complex Scenarios", () => {
 			features: ["auth", "logging", "metrics"],
 		});
 
-		const val = await perl.getVariable("config");
-		expect(await val?.isRef()).toBe(true);
+		const val = perl.getVariable("config");
+		expect(val?.isRef()).toBe(true);
 
-		await val?.dispose();
-		await perl.dispose();
+		val?.dispose();
+		perl.dispose();
 	});
 
 	it("should maintain state across operations", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval("$counter = 0");
-		await perl.eval("$counter++");
-		await perl.eval("$counter++");
+		let result = await perl.eval("$counter = 0");
+		expectSuccess(result);
 
-		const counter = await perl.getVariable("counter");
-		expect(await counter?.toInt()).toBe(2);
+		result = await perl.eval("$counter++");
+		expectSuccess(result);
 
-		await counter?.dispose();
-		await perl.dispose();
+		result = await perl.eval("$counter++");
+		expectSuccess(result);
+
+		const counter = perl.getVariable("counter");
+		expect(counter?.toInt()).toBe(2);
+
+		counter?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle errors without losing state", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.setVariable("x", 42);
+		perl.setVariable("x", 42);
 
-		await perl.eval('die "error"');
+		const result = await perl.eval('die "error"');
+		expectFailure(result);
 
-		const x = await perl.getVariable("x");
-		expect(await x?.toInt()).toBe(42);
+		const x = perl.getVariable("x");
+		expect(x?.toInt()).toBe(42);
 
-		await x?.dispose();
-		await perl.dispose();
+		x?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle loops and complex logic", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval(`
-            @array = (1, 2, 3, 4, 5);
-            $sum = 0;
-            foreach my $num (@array) {
-                $sum += $num;
-            }
-        `);
+		const result = await perl.eval(`
+			@array = (1, 2, 3, 4, 5);
+			$sum = 0;
+			foreach my $num (@array) {
+				$sum += $num;
+			}
+		`);
+		expectSuccess(result);
 
-		const sum = await perl.getVariable("sum");
-		expect(await sum?.toInt()).toBe(15);
+		const sum = perl.getVariable("sum");
+		expect(sum?.toInt()).toBe(15);
 
-		await sum?.dispose();
-		await perl.dispose();
+		sum?.dispose();
+		perl.dispose();
 	});
 
 	it("should work with JavaScript data in Perl code", async () => {
 		let output = "";
 		const perl = await ZeroPerl.create({
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await perl.setVariable("user", {
+		perl.setVariable("user", {
 			name: "Alice",
 			age: 30,
 			scores: [95, 87, 92],
 		});
 
-		await perl.eval('print "$user->{name} is $user->{age} years old"');
-		await perl.flush();
+		const result = await perl.eval('print "$user->{name} is $user->{age} years old"');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("Alice is 30 years old");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle large data structures", async () => {
 		const perl = await ZeroPerl.create();
 
 		const largeArray = Array.from({ length: 1000 }, (_, i) => i);
-		await perl.setVariable("numbers", largeArray);
+		perl.setVariable("numbers", largeArray);
 
-		await perl.eval(`
-            $sum = 0;
-            foreach my $num (@$numbers) {
-                $sum += $num;
-            }
-        `);
+		const result = await perl.eval(`
+			$sum = 0;
+			foreach my $num (@$numbers) {
+				$sum += $num;
+			}
+		`);
+		expectSuccess(result);
 
-		const sum = await perl.getVariable("sum");
-		expect(await sum?.toInt()).toBe(499500); // Sum of 0 to 999
+		const sum = perl.getVariable("sum");
+		expect(sum?.toInt()).toBe(499500);
 
-		await sum?.dispose();
-		await perl.dispose();
+		sum?.dispose();
+		perl.dispose();
 	});
 
 	it("should handle deeply nested structures", async () => {
@@ -1543,124 +1581,125 @@ describe("Complex Scenarios", () => {
 			},
 		};
 
-		await perl.setVariable("nested", nested);
+		perl.setVariable("nested", nested);
 
-		const r = await perl.eval('use Data::Dumper; print Dumper($nested);');
-		await perl.flush();
-		console.log(r, output);
+		const result = await perl.eval('use Data::Dumper; print Dumper($nested);');
+		expectSuccess(result);
+		perl.flush();
+
 		expect(output).toContain("'value' => 'deep'");
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
 describe("Edge Cases", () => {
 	it("should handle empty strings", async () => {
 		const perl = await ZeroPerl.create();
-		const val = await perl.createString("");
+		const val = perl.createString("");
 
-		expect(await val.toString()).toBe("");
-		expect(await val.project()).toBe("");
+		expect(val.toString()).toBe("");
+		expect(val.project()).toBe("");
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should handle special characters in strings", async () => {
 		const perl = await ZeroPerl.create();
 		const special = "Hello\nWorld\t!\0End";
-		const val = await perl.createString(special);
+		const val = perl.createString(special);
 
-		expect(await val.toString()).toBe(special);
+		expect(val.toString()).toBe(special);
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should handle Unicode strings", async () => {
 		const perl = await ZeroPerl.create();
 		const unicode = "Hello 世界 🌍";
-		const val = await perl.createString(unicode);
+		const val = perl.createString(unicode);
 
-		expect(await val.toString()).toBe(unicode);
+		expect(val.toString()).toBe(unicode);
 
-		await val.dispose();
-		await perl.dispose();
+		val.dispose();
+		perl.dispose();
 	});
 
 	it("should handle zero values", async () => {
 		const perl = await ZeroPerl.create();
-		const zero = await perl.createInt(0);
+		const zero = perl.createInt(0);
 
-		expect(await zero.toInt()).toBe(0);
-		expect(await zero.toBoolean()).toBe(false);
+		expect(zero.toInt()).toBe(0);
+		expect(zero.toBoolean()).toBe(false);
 
-		await zero.dispose();
-		await perl.dispose();
+		zero.dispose();
+		perl.dispose();
 	});
 
 	it("should handle negative numbers", async () => {
 		const perl = await ZeroPerl.create();
-		const neg = await perl.createInt(-42);
+		const neg = perl.createInt(-42);
 
-		expect(await neg.toInt()).toBe(-42);
+		expect(neg.toInt()).toBe(-42);
 
-		await neg.dispose();
-		await perl.dispose();
+		neg.dispose();
+		perl.dispose();
 	});
 
 	it("should handle very large numbers", async () => {
 		const perl = await ZeroPerl.create();
-		const large = await perl.createDouble(Number.MAX_SAFE_INTEGER);
+		const large = perl.createDouble(Number.MAX_SAFE_INTEGER);
 
-		expect(await large.toDouble()).toBe(Number.MAX_SAFE_INTEGER);
+		expect(large.toDouble()).toBe(Number.MAX_SAFE_INTEGER);
 
-		await large.dispose();
-		await perl.dispose();
+		large.dispose();
+		perl.dispose();
 	});
 
 	it("should handle empty arrays", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray([]);
+		const arr = perl.createArray([]);
 
-		expect(await arr.getLength()).toBe(0);
-		expect(await arr.project()).toEqual([]);
+		expect(arr.getLength()).toBe(0);
+		expect(arr.project()).toEqual([]);
 
-		await arr.dispose();
-		await perl.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should handle empty hashes", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash({});
+		const hash = perl.createHash({});
 
-		expect(await hash.project()).toEqual({});
+		expect(hash.project()).toEqual({});
 
-		await hash.dispose();
-		await perl.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 
 	it("should handle null in arrays", async () => {
 		const perl = await ZeroPerl.create();
-		const arr = await perl.createArray([1, null, 3]);
+		const arr = perl.createArray([1, null, 3]);
 
-		const val = await arr.get(1);
-		expect(await val?.isUndef()).toBe(true);
+		const val = arr.get(1);
+		expect(val?.isUndef()).toBe(true);
 
-		await val?.dispose();
-		await arr.dispose();
-		await perl.dispose();
+		val?.dispose();
+		arr.dispose();
+		perl.dispose();
 	});
 
 	it("should handle null in hashes", async () => {
 		const perl = await ZeroPerl.create();
-		const hash = await perl.createHash({ key: null });
+		const hash = perl.createHash({ key: null });
 
-		const val = await hash.get("key");
-		expect(await val?.isUndef()).toBe(true);
+		const val = hash.get("key");
+		expect(val?.isUndef()).toBe(true);
 
-		await val?.dispose();
-		await hash.dispose();
-		await perl.dispose();
+		val?.dispose();
+		hash.dispose();
+		perl.dispose();
 	});
 });
 
@@ -1669,107 +1708,96 @@ describe("Error Handling", () => {
 		const perl = await ZeroPerl.create();
 		const result = await perl.eval("$x = ;");
 
-		expect(result.success).toBe(false);
+		expectFailure(result);
 		expect(result.error).toBeTruthy();
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle runtime errors", async () => {
 		const perl = await ZeroPerl.create();
 		const result = await perl.eval("$x = 1 / 0");
-		console.log(result);
 
-		expect(result.success).toBe(false);
+		expectFailure(result);
 		expect(result.error).toContain("Illegal division by zero");
 
-		await perl.dispose();
+		perl.dispose();
 	});
 
 	it("should handle undefined variable access", async () => {
-		const perl = await ZeroPerl.create();
-
-		let output = "";
-		const warnPerl = await ZeroPerl.create({
+		let stderr = "";
+		const perl = await ZeroPerl.create({
 			stderr: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				stderr += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		const result = await warnPerl.eval("use warnings; print $undefined_var");
-		await warnPerl.flush();
-		console.log(result, output);
+		const result = await perl.eval("use warnings; print $undefined_var");
+		expectSuccess(result);
+		perl.flush();
 
-		expect(output).toContain("uninitialized");
+		expect(stderr).toContain("uninitialized");
 
-		await perl.dispose();
-		await warnPerl.dispose();
+		perl.dispose();
 	});
 
 	it("should recover from errors", async () => {
 		const perl = await ZeroPerl.create();
 
-		await perl.eval('die "error"');
-		await perl.clearError();
+		const failResult = await perl.eval('die "error"');
+		expectFailure(failResult);
+
+		perl.clearError();
 
 		const result = await perl.eval("$x = 42");
-		expect(result.success).toBe(true);
+		expectSuccess(result);
 
-		await perl.dispose();
+		perl.dispose();
 	});
 });
 
 describe("Creation Options", () => {
 	it("should create with custom environment", async () => {
+		let output = "";
 		const perl = await ZeroPerl.create({
 			env: { CUSTOM: "value" },
-		});
-
-		let output = "";
-		const testPerl = await ZeroPerl.create({
-			env: { CUSTOM: "value" },
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await testPerl.eval('print $ENV{CUSTOM}');
-		await testPerl.flush();
+		const result = await perl.eval('print $ENV{CUSTOM}');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("value");
 
-		await perl.dispose();
-		await testPerl.dispose();
+		perl.dispose();
 	});
 
 	it("should create with custom file system", async () => {
 		const fs = new MemoryFileSystem({ "/": "" });
 		fs.addFile("/test.txt", "content");
 
-		const perl = await ZeroPerl.create({ fileSystem: fs });
-
 		let output = "";
-		const testPerl = await ZeroPerl.create({
+		const perl = await ZeroPerl.create({
 			fileSystem: fs,
 			stdout: (data) => {
-				output +=
-					typeof data === "string" ? data : new TextDecoder().decode(data);
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
 			},
 		});
 
-		await testPerl.eval(`
+		const result = await perl.eval(`
 			open my $fh, '<', '/test.txt';
 			print <$fh>;
 			close $fh;
 		`);
-		await testPerl.flush();
+		expectSuccess(result);
+		perl.flush();
 
 		expect(output).toBe("content");
 
-		await perl.dispose();
-		await testPerl.dispose();
+		perl.dispose();
 	});
 
 	it("should create with output handlers", async () => {
@@ -1785,464 +1813,736 @@ describe("Creation Options", () => {
 			},
 		});
 
-		await perl.eval('print "out"; warn "err"');
-		await perl.flush();
+		const result = await perl.eval('print "out"; warn "err"');
+		expectSuccess(result);
+		perl.flush();
 
 		expect(stdout).toBe("out");
 		expect(stderr).toContain("err");
 
-		await perl.dispose();
+		perl.dispose();
+	});
+});
+
+describe("Unicode Character Handling", () => {
+	describe("Korean (한국어) Characters", () => {
+		it("should create and retrieve Korean strings", async () => {
+			const perl = await ZeroPerl.create();
+			const koreanText = "안녕하세요";
+			const val = perl.createString(koreanText);
+
+			expect(val.toString()).toBe(koreanText);
+			expect(val.project()).toBe(koreanText);
+			expect(val.toString().length).toBe(5);
+
+			val.dispose();
+			perl.dispose();
+		});
+
+		it("should handle Korean text in variables", async () => {
+			const perl = await ZeroPerl.create();
+			const koreanText = "김철수";
+
+			perl.setVariable("name", koreanText);
+			const retrieved = perl.getVariable("name");
+
+			expect(retrieved?.toString()).toBe(koreanText);
+			expect(retrieved?.toString()).not.toMatch(/[�]/);
+
+			retrieved?.dispose();
+			perl.dispose();
+		});
+
+		it("should handle Korean text with special characters", async () => {
+			const perl = await ZeroPerl.create();
+			const koreanText = "안녕하세요! 반갑습니다? (한국어)";
+
+			perl.setVariable("greeting", koreanText);
+			const retrieved = perl.getVariable("greeting");
+
+			expect(retrieved?.toString()).toBe(koreanText);
+
+			retrieved?.dispose();
+			perl.dispose();
+		});
+
+		it("should output Korean text correctly", async () => {
+			let output = "";
+			const perl = await ZeroPerl.create({
+				stdout: (data) => {
+					output += typeof data === "string" ? data : new TextDecoder().decode(data);
+				},
+			});
+
+			const koreanText = "안녕하세요";
+			perl.setVariable("msg", koreanText);
+
+			const result = await perl.eval('print $msg');
+			expectSuccess(result);
+			perl.flush();
+
+			expect(output).toBe(koreanText);
+			expect(output).not.toMatch(/[�]/);
+
+			perl.dispose();
+		});
 	});
 
-	describe("Unicode Character Handling", () => {
-		describe("Korean (한국어) Characters", () => {
-			it("should create and retrieve Korean strings", async () => {
-				const perl = await ZeroPerl.create();
-				const koreanText = "안녕하세요";
-				const val = await perl.createString(koreanText);
+	describe("Japanese (日本語) Characters", () => {
+		it("should create and retrieve Japanese strings", async () => {
+			const perl = await ZeroPerl.create();
+			const japaneseText = "こんにちは世界";
+			const val = perl.createString(japaneseText);
 
-				expect(await val.toString()).toBe(koreanText);
-				expect(await val.project()).toBe(koreanText);
-				expect((await val.toString()).length).toBe(5);
+			expect(val.toString()).toBe(japaneseText);
+			expect(val.project()).toBe(japaneseText);
 
-				await val.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Korean text in variables", async () => {
-				const perl = await ZeroPerl.create();
-				const koreanText = "김철수";
-
-				await perl.setVariable("name", koreanText);
-				const retrieved = await perl.getVariable("name");
-
-				expect(await retrieved?.toString()).toBe(koreanText);
-				expect(await retrieved?.toString()).not.toMatch(/[�]/);
-
-				await retrieved?.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Korean text with special characters", async () => {
-				const perl = await ZeroPerl.create();
-				const koreanText = "안녕하세요! 반갑습니다? (한국어)";
-
-				await perl.setVariable("greeting", koreanText);
-				const retrieved = await perl.getVariable("greeting");
-
-				expect(await retrieved?.toString()).toBe(koreanText);
-
-				await retrieved?.dispose();
-				await perl.dispose();
-			});
-
-			it("should output Korean text correctly", async () => {
-				let output = "";
-				const perl = await ZeroPerl.create({
-					stdout: (data) => {
-						output += typeof data === "string" ? data : new TextDecoder().decode(data);
-					},
-				});
-
-				const koreanText = "안녕하세요";
-				await perl.setVariable("msg", koreanText);
-				await perl.eval('print $msg');
-				await perl.flush();
-
-				expect(output).toBe(koreanText);
-				expect(output).not.toMatch(/[�]/);
-
-				await perl.dispose();
-			});
+			val.dispose();
+			perl.dispose();
 		});
 
-		describe("Japanese (日本語) Characters", () => {
-			it("should create and retrieve Japanese strings", async () => {
-				const perl = await ZeroPerl.create();
-				const japaneseText = "こんにちは世界";
-				const val = await perl.createString(japaneseText);
+		it("should handle mixed Hiragana, Katakana, and Kanji", async () => {
+			const perl = await ZeroPerl.create();
+			const japaneseText = "ひらがな カタカナ 漢字";
 
-				expect(await val.toString()).toBe(japaneseText);
-				expect(await val.project()).toBe(japaneseText);
+			perl.setVariable("text", japaneseText);
+			const retrieved = perl.getVariable("text");
 
-				await val.dispose();
-				await perl.dispose();
-			});
+			expect(retrieved?.toString()).toBe(japaneseText);
 
-			it("should handle mixed Hiragana, Katakana, and Kanji", async () => {
-				const perl = await ZeroPerl.create();
-				const japaneseText = "ひらがな カタカナ 漢字";
-
-				await perl.setVariable("text", japaneseText);
-				const retrieved = await perl.getVariable("text");
-
-				expect(await retrieved?.toString()).toBe(japaneseText);
-
-				await retrieved?.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Japanese text in arrays", async () => {
-				const perl = await ZeroPerl.create();
-				const items = ["東京", "大阪", "京都"];
-				const arr = await perl.createArray(items);
-
-				expect(await arr.getLength()).toBe(3);
-
-				const val0 = await arr.get(0);
-				expect(await val0?.toString()).toBe("東京");
-
-				const val1 = await arr.get(1);
-				expect(await val1?.toString()).toBe("大阪");
-
-				const projected = await arr.project();
-				expect(projected).toEqual(items);
-
-				await val0?.dispose();
-				await val1?.dispose();
-				await arr.dispose();
-				await perl.dispose();
-			});
+			retrieved?.dispose();
+			perl.dispose();
 		});
 
-		describe("Chinese (中文) Characters", () => {
-			it("should handle Simplified Chinese text", async () => {
-				const perl = await ZeroPerl.create();
-				const chineseText = "你好世界";
-				const val = await perl.createString(chineseText);
+		it("should handle Japanese text in arrays", async () => {
+			const perl = await ZeroPerl.create();
+			const items = ["東京", "大阪", "京都"];
+			const arr = perl.createArray(items);
 
-				expect(await val.toString()).toBe(chineseText);
-				expect(await val.toString()).not.toMatch(/[�]/);
+			expect(arr.getLength()).toBe(3);
 
-				await val.dispose();
-				await perl.dispose();
-			});
+			const val0 = arr.get(0);
+			expect(val0?.toString()).toBe("東京");
 
-			it("should handle Traditional Chinese text", async () => {
-				const perl = await ZeroPerl.create();
-				const chineseText = "繁體中文測試";
+			const val1 = arr.get(1);
+			expect(val1?.toString()).toBe("大阪");
 
-				await perl.setVariable("text", chineseText);
-				const retrieved = await perl.getVariable("text");
+			const projected = arr.project();
+			expect(projected).toEqual(items);
 
-				expect(await retrieved?.toString()).toBe(chineseText);
+			val0?.dispose();
+			val1?.dispose();
+			arr.dispose();
+			perl.dispose();
+		});
+	});
 
-				await retrieved?.dispose();
-				await perl.dispose();
-			});
+	describe("Chinese (中文) Characters", () => {
+		it("should handle Simplified Chinese text", async () => {
+			const perl = await ZeroPerl.create();
+			const chineseText = "你好世界";
+			const val = perl.createString(chineseText);
 
-			it("should handle Chinese text in hashes", async () => {
-				const perl = await ZeroPerl.create();
-				const data = {
-					城市: "北京",
-					国家: "中国",
-				};
-				const hash = await perl.createHash(data);
+			expect(val.toString()).toBe(chineseText);
+			expect(val.toString()).not.toMatch(/[�]/);
 
-				const city = await hash.get("城市");
-				expect(await city?.toString()).toBe("北京");
-
-				const country = await hash.get("国家");
-				expect(await country?.toString()).toBe("中国");
-
-				await city?.dispose();
-				await country?.dispose();
-				await hash.dispose();
-				await perl.dispose();
-			});
+			val.dispose();
+			perl.dispose();
 		});
 
-		describe("Mixed Unicode and Multilingual", () => {
-			it("should handle mixed language text", async () => {
-				const perl = await ZeroPerl.create();
-				const mixedText = "Hello 안녕하세요 こんにちは 你好";
-				const val = await perl.createString(mixedText);
+		it("should handle Traditional Chinese text", async () => {
+			const perl = await ZeroPerl.create();
+			const chineseText = "繁體中文測試";
 
-				expect(await val.toString()).toBe(mixedText);
+			perl.setVariable("text", chineseText);
+			const retrieved = perl.getVariable("text");
 
-				await val.dispose();
-				await perl.dispose();
-			});
+			expect(retrieved?.toString()).toBe(chineseText);
 
-			it("should handle emoji and extended Unicode", async () => {
-				const perl = await ZeroPerl.create();
-				const emojiText = "📷 Photo by 김철수 🌸";
-				const val = await perl.createString(emojiText);
-
-				expect(await val.toString()).toBe(emojiText);
-
-				await val.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Unicode in nested structures", async () => {
-				const perl = await ZeroPerl.create();
-				const nested = {
-					user: {
-						name: "田中太郎",
-						city: "東京",
-					},
-					tags: ["写真", "旅行", "食べ物"],
-				};
-
-				await perl.setVariable("data", nested);
-				const retrieved = await perl.getVariable("data");
-
-				expect(await retrieved?.isRef()).toBe(true);
-
-				await retrieved?.dispose();
-				await perl.dispose();
-			});
-
-			it("should round-trip Unicode arrays", async () => {
-				const perl = await ZeroPerl.create();
-				const original = ["Hello", "안녕", "こんにちは", "你好", "🌍"];
-				const arr = await perl.createArray(original);
-				const result = await arr.project();
-
-				expect(result).toEqual(original);
-
-				await arr.dispose();
-				await perl.dispose();
-			});
-
-			it("should round-trip Unicode hashes", async () => {
-				const perl = await ZeroPerl.create();
-				const original = {
-					english: "Hello",
-					korean: "안녕하세요",
-					japanese: "こんにちは",
-					chinese: "你好",
-					emoji: "🎉",
-				};
-				const hash = await perl.createHash(original);
-				const result = await hash.project();
-
-				expect(result).toEqual(original);
-
-				await hash.dispose();
-				await perl.dispose();
-			});
+			retrieved?.dispose();
+			perl.dispose();
 		});
 
-		describe("Unicode in Perl Operations", () => {
-			it("should handle Unicode in eval code with 'use utf8' pragma", async () => {
-				const perl = await ZeroPerl.create();
-				const result = await perl.eval('use utf8; $greeting = "안녕하세요"');
+		it("should handle Chinese text in hashes", async () => {
+			const perl = await ZeroPerl.create();
+			const data = {
+				城市: "北京",
+				国家: "中国",
+			};
+			const hash = perl.createHash(data);
 
-				expect(result.success).toBe(true);
+			const city = hash.get("城市");
+			expect(city?.toString()).toBe("北京");
 
-				const greeting = await perl.getVariable("greeting");
-				expect(await greeting?.toString()).toBe("안녕하세요");
+			const country = hash.get("国家");
+			expect(country?.toString()).toBe("中国");
 
-				await greeting?.dispose();
-				await perl.dispose();
-			});
+			city?.dispose();
+			country?.dispose();
+			hash.dispose();
+			perl.dispose();
+		});
+	});
 
-			it("should handle Unicode in Perl string operations with 'use utf8' pragma", async () => {
-				let output = "";
-				const perl = await ZeroPerl.create({
-					stdout: (data) => {
-						output += typeof data === "string" ? data : new TextDecoder().decode(data);
-					},
-				});
+	describe("Mixed Unicode and Multilingual", () => {
+		it("should handle mixed language text", async () => {
+			const perl = await ZeroPerl.create();
+			const mixedText = "Hello 안녕하세요 こんにちは 你好";
+			const val = perl.createString(mixedText);
 
-				await perl.setVariable("name", "김철수");
-				await perl.eval('use utf8; $msg = "안녕하세요, $name!"; print $msg');
-				await perl.flush();
+			expect(val.toString()).toBe(mixedText);
 
-				expect(output).toBe("안녕하세요, 김철수!");
-
-				await perl.dispose();
-			});
-
-			it("should handle Unicode passed via setVariable without pragma", async () => {
-				let output = "";
-				const perl = await ZeroPerl.create({
-					stdout: (data) => {
-						output += typeof data === "string" ? data : new TextDecoder().decode(data);
-					},
-				});
-
-				await perl.setVariable("greeting", "안녕하세요");
-				await perl.setVariable("name", "김철수");
-				await perl.eval('print "$greeting, $name!"');
-				await perl.flush();
-
-				expect(output).toBe("안녕하세요, 김철수!");
-
-				await perl.dispose();
-			});
-
-			it("should handle Unicode in host functions with pragma", async () => {
-				const perl = await ZeroPerl.create();
-
-				await perl.registerFunction("greet", async (name) => {
-					const n = await name.toString();
-					return await perl.createString(`안녕하세요, ${n}!`);
-				});
-				await perl.eval('use utf8; $result = greet("田中")');
-				const result = await perl.getVariable("result");
-
-				expect(await result?.toString()).toBe("안녕하세요, 田中!");
-
-				await result?.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Unicode in host functions via setVariable", async () => {
-				const perl = await ZeroPerl.create();
-
-				await perl.registerFunction("greet", async (name) => {
-					const n = await name.toString();
-					return await perl.createString(`안녕하세요, ${n}!`);
-				});
-
-				await perl.setVariable("name_arg", "田中");
-				await perl.eval('$result = greet($name_arg)');
-				const result = await perl.getVariable("result");
-
-				expect(await result?.toString()).toBe("안녕하세요, 田中!");
-
-				await result?.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Unicode in Perl subroutine calls", async () => {
-				const perl = await ZeroPerl.create();
-
-				await perl.eval('sub echo { return $_[0]; }');
-
-				const arg = await perl.createString("こんにちは世界");
-				const result = await perl.call("echo", [arg], "scalar");
-
-				expect(await result?.toString()).toBe("こんにちは世界");
-
-				await arg.dispose();
-				await result?.dispose();
-				await perl.dispose();
-			});
-
-			it("should corrupt Unicode in source code without 'use utf8' pragma", async () => {
-				const perl = await ZeroPerl.create();
-				const result = await perl.eval('$greeting = "안녕하세요"');
-
-				expect(result.success).toBe(true);
-
-				const greeting = await perl.getVariable("greeting");
-				const retrieved = await greeting?.toString();
-
-				expect(retrieved).not.toBe("안녕하세요");
-				expect(retrieved?.length).toBeGreaterThan(5);
-
-				await greeting?.dispose();
-				await perl.dispose();
-			});
+			val.dispose();
+			perl.dispose();
 		});
 
-		describe("Unicode Byte Length Validation", () => {
-			it("should preserve correct byte length for Korean text", async () => {
-				const perl = await ZeroPerl.create();
-				const koreanText = "안녕하세요";
-				const expectedByteLength = new TextEncoder().encode(koreanText).length;
+		it("should handle emoji and extended Unicode", async () => {
+			const perl = await ZeroPerl.create();
+			const emojiText = "📷 Photo by 김철수 🌸";
+			const val = perl.createString(emojiText);
 
-				const val = await perl.createString(koreanText);
-				const retrieved = await val.toString();
-				const actualByteLength = new TextEncoder().encode(retrieved).length;
+			expect(val.toString()).toBe(emojiText);
 
-				expect(actualByteLength).toBe(expectedByteLength);
-				expect(retrieved.length).toBe(koreanText.length);
-
-				await val.dispose();
-				await perl.dispose();
-			});
-
-			it("should preserve correct byte length for emoji", async () => {
-				const perl = await ZeroPerl.create();
-				const emojiText = "🎉🌸📷";
-				const expectedByteLength = new TextEncoder().encode(emojiText).length;
-
-				const val = await perl.createString(emojiText);
-				const retrieved = await val.toString();
-				const actualByteLength = new TextEncoder().encode(retrieved).length;
-
-				expect(actualByteLength).toBe(expectedByteLength);
-
-				await val.dispose();
-				await perl.dispose();
-			});
+			val.dispose();
+			perl.dispose();
 		});
 
-		describe("Unicode Edge Cases", () => {
-			it("should handle very long Unicode text", async () => {
-				const perl = await ZeroPerl.create();
-				const longText = "안녕하세요".repeat(100);
+		it("should handle Unicode in nested structures", async () => {
+			const perl = await ZeroPerl.create();
+			const nested = {
+				user: {
+					name: "田中太郎",
+					city: "東京",
+				},
+				tags: ["写真", "旅行", "食べ物"],
+			};
 
-				const val = await perl.createString(longText);
-				const retrieved = await val.toString();
+			perl.setVariable("data", nested);
+			const retrieved = perl.getVariable("data");
 
-				expect(retrieved).toBe(longText);
-				expect(retrieved.length).toBe(500);
+			expect(retrieved?.isRef()).toBe(true);
 
-				await val.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Unicode with null bytes", async () => {
-				const perl = await ZeroPerl.create();
-				const text = "안녕\0하세요";
-
-				const val = await perl.createString(text);
-				const retrieved = await val.toString();
-
-				expect(retrieved).toBe(text);
-
-				await val.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle Unicode newlines and whitespace", async () => {
-				const perl = await ZeroPerl.create();
-				const text = "こんにちは\n世界\t日本";
-
-				const val = await perl.createString(text);
-				const retrieved = await val.toString();
-
-				expect(retrieved).toBe(text);
-
-				await val.dispose();
-				await perl.dispose();
-			});
-
-			it("should detect corruption via replacement characters", async () => {
-				const perl = await ZeroPerl.create();
-				const koreanText = "안녕하세요";
-
-				await perl.setVariable("text", koreanText);
-				const retrieved = await perl.getVariable("text");
-				const result = await retrieved?.toString();
-
-				expect(result).not.toContain("�");
-				expect(result).not.toContain("HUX8");
-				expect(result).toMatch(/[\u3131-\uD79D]/); // Contains Hangul
-
-				await retrieved?.dispose();
-				await perl.dispose();
-			});
-
-			it("should handle combining characters", async () => {
-				const perl = await ZeroPerl.create();
-				// Korean with combining jamo
-				const text = "가나다라마";
-
-				const val = await perl.createString(text);
-				const retrieved = await val.toString();
-
-				expect(retrieved).toBe(text);
-
-				await val.dispose();
-				await perl.dispose();
-			});
+			retrieved?.dispose();
+			perl.dispose();
 		});
+
+		it("should round-trip Unicode arrays", async () => {
+			const perl = await ZeroPerl.create();
+			const original = ["Hello", "안녕", "こんにちは", "你好", "🌍"];
+			const arr = perl.createArray(original);
+			const result = arr.project();
+
+			expect(result).toEqual(original);
+
+			arr.dispose();
+			perl.dispose();
+		});
+
+		it("should round-trip Unicode hashes", async () => {
+			const perl = await ZeroPerl.create();
+			const original = {
+				english: "Hello",
+				korean: "안녕하세요",
+				japanese: "こんにちは",
+				chinese: "你好",
+				emoji: "🎉",
+			};
+			const hash = perl.createHash(original);
+			const result = hash.project();
+
+			expect(result).toEqual(original);
+
+			hash.dispose();
+			perl.dispose();
+		});
+	});
+
+	describe("Unicode in Perl Operations", () => {
+		it("should handle Unicode in eval code with 'use utf8' pragma", async () => {
+			const perl = await ZeroPerl.create();
+			const result = await perl.eval('use utf8; $greeting = "안녕하세요"');
+			expectSuccess(result);
+
+			const greeting = perl.getVariable("greeting");
+			expect(greeting?.toString()).toBe("안녕하세요");
+
+			greeting?.dispose();
+			perl.dispose();
+		});
+
+		it("should handle Unicode in Perl string operations with 'use utf8' pragma", async () => {
+			let output = "";
+			const perl = await ZeroPerl.create({
+				stdout: (data) => {
+					output += typeof data === "string" ? data : new TextDecoder().decode(data);
+				},
+			});
+
+			perl.setVariable("name", "김철수");
+
+			const result = await perl.eval('use utf8; $msg = "안녕하세요, $name!"; print $msg');
+			expectSuccess(result);
+			perl.flush();
+
+			expect(output).toBe("안녕하세요, 김철수!");
+
+			perl.dispose();
+		});
+
+		it("should handle Unicode passed via setVariable without pragma", async () => {
+			let output = "";
+			const perl = await ZeroPerl.create({
+				stdout: (data) => {
+					output += typeof data === "string" ? data : new TextDecoder().decode(data);
+				},
+			});
+
+			perl.setVariable("greeting", "안녕하세요");
+			perl.setVariable("name", "김철수");
+
+			const result = await perl.eval('print "$greeting, $name!"');
+			expectSuccess(result);
+			perl.flush();
+
+			expect(output).toBe("안녕하세요, 김철수!");
+
+			perl.dispose();
+		});
+
+		it("should handle Unicode in host functions with pragma", async () => {
+			const perl = await ZeroPerl.create();
+
+			perl.registerFunction("greet", (name) => {
+				const n = name.toString();
+				return perl.createString(`안녕하세요, ${n}!`);
+			});
+
+			const result = await perl.eval('use utf8; $result = greet("田中")');
+			expectSuccess(result);
+
+			const perlResult = perl.getVariable("result");
+			expect(perlResult?.toString()).toBe("안녕하세요, 田中!");
+
+			perlResult?.dispose();
+			perl.dispose();
+		});
+
+		it("should handle Unicode in host functions via setVariable", async () => {
+			const perl = await ZeroPerl.create();
+
+			perl.registerFunction("greet", (name) => {
+				const n = name.toString();
+				return perl.createString(`안녕하세요, ${n}!`);
+			});
+
+			perl.setVariable("name_arg", "田中");
+
+			const result = await perl.eval('$result = greet($name_arg)');
+			expectSuccess(result);
+
+			const perlResult = perl.getVariable("result");
+			expect(perlResult?.toString()).toBe("안녕하세요, 田中!");
+
+			perlResult?.dispose();
+			perl.dispose();
+		});
+
+		it("should handle Unicode in Perl subroutine calls", async () => {
+			const perl = await ZeroPerl.create();
+
+			const result = await perl.eval('sub echo { return $_[0]; }');
+			expectSuccess(result);
+
+			const arg = perl.createString("こんにちは世界");
+			const callResult = await perl.call("echo", [arg], "scalar");
+
+			expect(callResult?.toString()).toBe("こんにちは世界");
+
+			arg.dispose();
+			callResult?.dispose();
+			perl.dispose();
+		});
+
+		it("should corrupt Unicode in source code without 'use utf8' pragma", async () => {
+			const perl = await ZeroPerl.create();
+			const result = await perl.eval('$greeting = "안녕하세요"');
+			expectSuccess(result);
+
+			const greeting = perl.getVariable("greeting");
+			const retrieved = greeting?.toString();
+
+			expect(retrieved).not.toBe("안녕하세요");
+			expect(retrieved?.length).toBeGreaterThan(5);
+
+			greeting?.dispose();
+			perl.dispose();
+		});
+	});
+
+	describe("Unicode Byte Length Validation", () => {
+		it("should preserve correct byte length for Korean text", async () => {
+			const perl = await ZeroPerl.create();
+			const koreanText = "안녕하세요";
+			const expectedByteLength = new TextEncoder().encode(koreanText).length;
+
+			const val = perl.createString(koreanText);
+			const retrieved = val.toString();
+			const actualByteLength = new TextEncoder().encode(retrieved).length;
+
+			expect(actualByteLength).toBe(expectedByteLength);
+			expect(retrieved.length).toBe(koreanText.length);
+
+			val.dispose();
+			perl.dispose();
+		});
+
+		it("should preserve correct byte length for emoji", async () => {
+			const perl = await ZeroPerl.create();
+			const emojiText = "🎉🌸📷";
+			const expectedByteLength = new TextEncoder().encode(emojiText).length;
+
+			const val = perl.createString(emojiText);
+			const retrieved = val.toString();
+			const actualByteLength = new TextEncoder().encode(retrieved).length;
+
+			expect(actualByteLength).toBe(expectedByteLength);
+
+			val.dispose();
+			perl.dispose();
+		});
+	});
+
+	describe("Unicode Edge Cases", () => {
+		it("should handle very long Unicode text", async () => {
+			const perl = await ZeroPerl.create();
+			const longText = "안녕하세요".repeat(100);
+
+			const val = perl.createString(longText);
+			const retrieved = val.toString();
+
+			expect(retrieved).toBe(longText);
+			expect(retrieved.length).toBe(500);
+
+			val.dispose();
+			perl.dispose();
+		});
+
+		it("should handle Unicode with null bytes", async () => {
+			const perl = await ZeroPerl.create();
+			const text = "안녕\0하세요";
+
+			const val = perl.createString(text);
+			const retrieved = val.toString();
+
+			expect(retrieved).toBe(text);
+
+			val.dispose();
+			perl.dispose();
+		});
+
+		it("should handle Unicode newlines and whitespace", async () => {
+			const perl = await ZeroPerl.create();
+			const text = "こんにちは\n世界\t日本";
+
+			const val = perl.createString(text);
+			const retrieved = val.toString();
+
+			expect(retrieved).toBe(text);
+
+			val.dispose();
+			perl.dispose();
+		});
+
+		it("should detect corruption via replacement characters", async () => {
+			const perl = await ZeroPerl.create();
+			const koreanText = "안녕하세요";
+
+			perl.setVariable("text", koreanText);
+			const retrieved = perl.getVariable("text");
+			const result = retrieved?.toString();
+
+			expect(result).not.toContain("�");
+			expect(result).not.toContain("HUX8");
+			expect(result).toMatch(/[\u3131-\uD79D]/);
+
+			retrieved?.dispose();
+			perl.dispose();
+		});
+
+		it("should handle combining characters", async () => {
+			const perl = await ZeroPerl.create();
+			const text = "가나다라마";
+
+			const val = perl.createString(text);
+			const retrieved = val.toString();
+
+			expect(retrieved).toBe(text);
+
+			val.dispose();
+			perl.dispose();
+		});
+	});
+});
+
+describe("Perl Build Configuration", () => {
+	it("should have consistent integer type sizes between runtime and config", async () => {
+		const perl = await ZeroPerl.create();
+
+		const result = await perl.eval(`
+			use Config;
+			my @errors;
+			
+			my $iv_pack = length(pack("j", 0));
+			my $uv_pack = length(pack("J", 0));
+			my $ptr_pack = length(pack("P", 0));
+			my $long_pack = length(pack("l!", 0));
+			my $longlong_pack = length(pack("q", 0));
+			
+			push @errors, "IV: pack=$iv_pack config=$Config{ivsize}" if $iv_pack != $Config{ivsize};
+			push @errors, "UV: pack=$uv_pack config=$Config{uvsize}" if $uv_pack != $Config{uvsize};
+			push @errors, "Pointer: pack=$ptr_pack config=$Config{ptrsize}" if $ptr_pack != $Config{ptrsize};
+			push @errors, "long: pack=$long_pack config=$Config{longsize}" if $long_pack != $Config{longsize};
+			push @errors, "long long: pack=$longlong_pack config=$Config{longlongsize}" if $longlong_pack != $Config{longlongsize};
+			
+			die "Type size mismatches: " . join(", ", @errors) if @errors;
+		`);
+		expectSuccess(result);
+
+		perl.dispose();
+	});
+
+	it("should have correct WASM32 type sizes", async () => {
+		let output = "";
+		const perl = await ZeroPerl.create({
+			stdout: (data) => {
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
+			},
+		});
+
+		const result = await perl.eval(`
+			use Config;
+			print "$Config{ptrsize},$Config{longsize},$Config{longlongsize},$Config{ivsize},$Config{lseeksize}";
+		`);
+		expectSuccess(result);
+		perl.flush();
+
+		const [ptrsize, longsize, longlongsize, ivsize, lseeksize] = output.split(",").map(Number);
+
+		expect(ptrsize).toBe(4);
+		expect(longsize).toBe(4);
+		expect(longlongsize).toBe(8);
+		expect(ivsize).toBe(8);
+		expect(lseeksize).toBe(8);
+
+		perl.dispose();
+	});
+
+	it("should have 64-bit integer support for large files", async () => {
+		let output = "";
+		const perl = await ZeroPerl.create({
+			stdout: (data) => {
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
+			},
+		});
+
+		const result = await perl.eval(`
+			use Config;
+			my $ok = $Config{ivsize} >= $Config{lseeksize} ? 1 : 0;
+			print "$ok,$Config{ivsize},$Config{lseeksize}";
+		`);
+		expectSuccess(result);
+		perl.flush();
+
+		const [ok, ivsize, lseeksize] = output.split(",").map(Number);
+
+		expect(ok).toBe(1);
+		expect(ivsize).toBeGreaterThanOrEqual(lseeksize);
+
+		perl.dispose();
+	});
+
+	it("should use long long for 64-bit types", async () => {
+		let output = "";
+		const perl = await ZeroPerl.create({
+			stdout: (data) => {
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
+			},
+		});
+
+		const result = await perl.eval(`
+			use Config;
+			print "$Config{ivtype}|$Config{uvtype}|$Config{i64type}|$Config{u64type}";
+		`);
+		expectSuccess(result);
+		perl.flush();
+
+		const [ivtype, uvtype, i64type, u64type] = output.split("|");
+
+		expect(ivtype).toBe("long long");
+		expect(uvtype).toBe("unsigned long long");
+		expect(i64type).toBe("long long");
+		expect(u64type).toBe("unsigned long long");
+
+		perl.dispose();
+	});
+});
+
+describe("Perl I/O Operations", () => {
+	it("should handle binary read-seek-read pattern", async () => {
+		const fs = new MemoryFileSystem({ "/": "/" });
+
+		const encoder = new TextEncoder();
+		const parts: Uint8Array[] = [];
+
+		parts.push(encoder.encode("channels\0chlist\0"));
+		parts.push(new Uint8Array([20, 0, 0, 0]));
+		parts.push(new Uint8Array(20).fill(0xAA));
+
+		parts.push(encoder.encode("compression\0compression\0"));
+		parts.push(new Uint8Array([1, 0, 0, 0]));
+		parts.push(new Uint8Array([3]));
+
+		parts.push(new Uint8Array([0]));
+
+		const totalLength = parts.reduce((acc, p) => acc + p.length, 0);
+		const fileData = new Uint8Array(totalLength);
+		let offset = 0;
+		for (const part of parts) {
+			fileData.set(part, offset);
+			offset += part.length;
+		}
+
+		fs.addFile("/test.bin", fileData);
+
+		let output = "";
+		const perl = await ZeroPerl.create({
+			fileSystem: fs,
+			stdout: (data) => {
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
+			},
+		});
+
+		const result = await perl.eval(`
+			open my $fh, '<:raw', '/test.bin' or die "Cannot open: $!";
+			my @attributes;
+			
+			while (1) {
+				my $bytes = sysread($fh, my $buff, 69);
+				die "Read failed" unless defined $bytes;
+				last if $bytes == 0;
+				last if $buff =~ /^\\0/;
+				
+				unless ($buff =~ /^([^\\0]+)\\0([^\\0]+)\\0(.{4})/s) {
+					die "Pattern match failed";
+				}
+				
+				my ($name, $type, $size_bytes) = ($1, $2, $3);
+				my $size = unpack('V', $size_bytes);
+				
+				my $match_end = length($name) + 1 + length($type) + 1 + 4;
+				my $seek_offset = $match_end - length($buff);
+				sysseek($fh, $seek_offset, 1) or die "Seek failed: $!";
+				
+				my $data_read = sysread($fh, my $data, $size);
+				die "Data read failed" unless $data_read == $size;
+				
+				push @attributes, "$name:$type:$size";
+			}
+			
+			close $fh;
+			print join(",", @attributes);
+		`);
+		expectSuccess(result);
+		perl.flush();
+
+		expect(output).toContain("channels:chlist:20");
+		expect(output).toContain("compression:compression:1");
+
+		perl.dispose();
+	});
+
+	it("should correctly pack and unpack 64-bit integers", async () => {
+		let output = "";
+		const perl = await ZeroPerl.create({
+			stdout: (data) => {
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
+			},
+		});
+
+		const result = await perl.eval(`
+			my $big = 0x123456789ABCDEF0;
+			my $packed = pack("q", $big);
+			my $unpacked = unpack("q", $packed);
+			
+			if ($unpacked == $big) {
+				print "OK";
+			} else {
+				print "FAIL:expected=$big,got=$unpacked";
+			}
+		`);
+		expectSuccess(result);
+		perl.flush();
+
+		expect(output).toBe("OK");
+
+		perl.dispose();
+	});
+});
+
+describe("Time::HiRes", () => {
+	it("should load Time::HiRes module", async () => {
+		const perl = await ZeroPerl.create();
+
+		const result = await perl.eval(`use Time::HiRes; 1;`);
+		expectSuccess(result);
+
+		perl.dispose();
+	});
+
+	it("should get high-resolution time", async () => {
+		let output = "";
+		const perl = await ZeroPerl.create({
+			stdout: (data) => {
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
+			},
+		});
+
+		const result = await perl.eval(`
+			use Time::HiRes qw(gettimeofday);
+			my ($sec, $usec) = gettimeofday();
+			print "$sec,$usec";
+		`);
+		expectSuccess(result);
+		perl.flush();
+
+		const [sec, usec] = output.split(",").map(Number);
+		expect(sec).toBeGreaterThan(1577836800);
+		expect(usec).toBeGreaterThanOrEqual(0);
+		expect(usec).toBeLessThan(1000000);
+
+		perl.dispose();
+	});
+
+	it("should get time as float", async () => {
+		let output = "";
+		const perl = await ZeroPerl.create({
+			stdout: (data) => {
+				output += typeof data === "string" ? data : new TextDecoder().decode(data);
+			},
+		});
+
+		const result = await perl.eval(`
+			use Time::HiRes qw(time);
+			my $t = time();
+			print $t;
+		`);
+		expectSuccess(result);
+		perl.flush();
+
+		const t = parseFloat(output);
+		expect(t).toBeGreaterThan(1577836800);
+		expect(output).toContain(".");
+
+		perl.dispose();
 	});
 });
