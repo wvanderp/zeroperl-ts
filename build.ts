@@ -15,6 +15,9 @@ await Promise.all([
       chunk: '[name].js',
       asset: '[name].[ext]',
     },
+    loader: {
+      '.wasm': 'file',
+    },
   }),
   Bun.build({
     ...shared,
